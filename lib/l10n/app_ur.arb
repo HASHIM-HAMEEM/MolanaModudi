@@ -1,0 +1,33 @@
+{
+  "@@locale": "ur",
+  "appTitle": "مولانا مودودی",
+  
+  "profile_title": "پروفائل اور ترتیبات",
+  
+  "reading_preferences": "مطالعہ کی ترجیحات",
+  "appearance": "ظاہری شکل",
+  "font_size": "حرف کا سائز",
+  "small": "چھوٹا",
+  "medium": "درمیانہ",
+  "large": "بڑا",
+  "extra_large": "بہت بڑا",
+  "sepia_mode": "سیپیا موڈ",
+  "enable_sepia": "سیپیا فعال کریں",
+  
+  "app_settings": "ایپ کی ترتیبات",
+  "language": "زبان",
+  "english": "انگریزی",
+  "arabic": "عربی",
+  "urdu": "اردو",
+  "notifications": "اطلاعات",
+  "download_settings": "ڈاؤن لوڈ کی ترتیبات",
+  
+  "support_info": "معاونت اور معلومات",
+  "help_faq": "مدد اور اکثر پوچھے گئے سوالات",
+  "contact_us": "ہم سے رابطہ کریں",
+  "privacy_policy": "رازداری پالیسی",
+  
+  "app_details": "ایپ کی تفصیلات",
+  "app_version": "ایپ کا ورژن",
+  "build_number": "بلڈ نمبر"
+}
