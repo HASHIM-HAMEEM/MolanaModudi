@@ -1,11 +1,12 @@
 // import '../entities/book_entity.dart'; Remove this
 // import 'package:modudi/core/models/book_model.dart'; // Remove this
-import 'package:modudi/models/book_models.dart'; // Use new models
+import 'package:modudi/features/books/data/models/book_models.dart'; // Use new models
 import '../entities/category_entity.dart';
 import '../entities/video_entity.dart';
 
 /// Abstract repository defining the contract for fetching home screen data.
 abstract class HomeRepository {
+  Future<Book?> getBookById(String bookId);
   
   /// Fetches a list of featured books.
   /// 

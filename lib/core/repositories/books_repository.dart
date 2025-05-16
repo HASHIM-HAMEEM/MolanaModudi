@@ -1,7 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:modudi/models/book_models.dart';
+import 'package:modudi/features/books/data/cache/book_cache_service.dart';
+import 'package:modudi/features/books/data/models/book_models.dart';
 
 /// Abstract repository definition for fetching books.
 abstract class BooksRepository {
@@ -26,14 +26,26 @@ abstract class BooksRepository {
 
 class BooksRepositoryImpl implements BooksRepository {
   final FirebaseFirestore _firestore;
+  final BookCacheService _cacheService;
   
-  BooksRepositoryImpl({FirebaseFirestore? firestore}) 
-      : _firestore = firestore ?? FirebaseFirestore.instance;
+  BooksRepositoryImpl({
+    required BookCacheService cacheService,
+    FirebaseFirestore? firestore,
+  }) : _firestore = firestore ?? FirebaseFirestore.instance,
+       _cacheService = cacheService;
   
   /// Get a single book by ID, including its headings
   @override
   Future<Book?> getBook(String bookId) async {
     try {
+      // Try to get from cache first
+      final cachedBook = await _cacheService.getCachedBook(bookId);
+      if (cachedBook != null) {
+        debugPrint('Retrieved book from cache: ${cachedBook.title}');
+        return cachedBook;
+      }
+      
+      // If not in cache, fetch from Firestore
       final bookDoc = await _firestore.collection('books').doc(bookId).get();
       
       if (!bookDoc.exists || bookDoc.data() == null) {
@@ -50,10 +62,15 @@ class BooksRepositoryImpl implements BooksRepository {
           .get();
       
       final headings = headingsSnapshot.docs
-          .map((doc) => Heading.fromMap(doc.id, doc.data() as Map<String, dynamic>))
+          .map((doc) => Heading.fromMap(doc.id, doc.data()))
           .toList();
           
-      return book.copyWith(headings: headings);
+      final bookWithHeadings = book.copyWith(headings: headings);
+      
+      // Cache the book for future use
+      await _cacheService.cacheBook(bookWithHeadings);
+      
+      return bookWithHeadings;
     } catch (e) {
       debugPrint('Error getting book: $e');
       return null;
@@ -101,7 +118,7 @@ class BooksRepositoryImpl implements BooksRepository {
           .get();
       
       return querySnapshot.docs
-          .map((doc) => Heading.fromMap(doc.id, doc.data() as Map<String, dynamic>))
+          .map((doc) => Heading.fromMap(doc.id, doc.data()))
           .toList();
     } catch (e) {
       debugPrint('Error getting book headings: $e');
@@ -117,12 +134,12 @@ class BooksRepositoryImpl implements BooksRepository {
           .collection('books')
           .orderBy('title')
           .startAt([query])
-          .endAt([query + '\uf8ff'])
+          .endAt(['$query\uf8ff'])
           .limit(20)
           .get();
       
       return querySnapshot.docs
-          .map((doc) => Book.fromMap(doc.id, doc.data() as Map<String, dynamic>))
+          .map((doc) => Book.fromMap(doc.id, doc.data()))
           .toList();
     } catch (e) {
       debugPrint('Error searching books: $e');
@@ -141,7 +158,7 @@ class BooksRepositoryImpl implements BooksRepository {
       final Map<String, int> categoryCounts = {};
       
       for (var doc in querySnapshot.docs) {
-        final data = doc.data() as Map<String, dynamic>; 
+        final data = doc.data(); 
         final currentTags = data['tags'];
         if (currentTags is List) {
           for (var tag in currentTags) {
@@ -169,7 +186,7 @@ class BooksRepositoryImpl implements BooksRepository {
           .get();
       
       return querySnapshot.docs
-          .map((doc) => Book.fromMap(doc.id, doc.data() as Map<String, dynamic>))
+          .map((doc) => Book.fromMap(doc.id, doc.data()))
           .toList();
     } catch (e) {
       debugPrint('Error getting featured books: $e');

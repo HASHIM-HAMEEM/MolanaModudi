@@ -56,11 +56,11 @@ class VideoTile extends StatelessWidget {
                       height: thumbnailHeight,
                       fit: BoxFit.cover,
                       placeholder: (context, url) => Container(
-                        color: theme.colorScheme.surfaceVariant,
+                        color: theme.colorScheme.surfaceContainerHighest,
                         child: const Center(child: CircularProgressIndicator(strokeWidth: 2)),
                       ),
                       errorWidget: (context, url, error) => Container(
-                        color: theme.colorScheme.surfaceVariant,
+                        color: theme.colorScheme.surfaceContainerHighest,
                         child: const Icon(Icons.error_outline, size: 24),
                       ),
                     ),

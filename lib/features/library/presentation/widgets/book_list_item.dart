@@ -2,7 +2,7 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import '../../../../core/themes/maududi_theme.dart'; // For BookItemStyles & CardStyles
 // import '../../../../core/models/book_model.dart'; // Import BookModel from core
-import 'package:modudi/models/book_models.dart'; // Use new models
+import 'package:modudi/features/books/data/models/book_models.dart'; // Use new models
 
 class BookListItem extends StatelessWidget {
   final Book book; // Changed from BookModel to Book
@@ -55,12 +55,12 @@ class BookListItem extends StatelessWidget {
                   placeholder: (context, url) => Container(
                     width: imageWidth,
                     height: imageHeight,
-                    color: theme.colorScheme.surfaceVariant,
+                    color: theme.colorScheme.surfaceContainerHighest,
                   ),
                   errorWidget: (context, url, error) => Container(
                     width: imageWidth,
                     height: imageHeight,
-                    color: theme.colorScheme.surfaceVariant,
+                    color: theme.colorScheme.surfaceContainerHighest,
                     child: const Icon(Icons.error_outline, size: 32),
                   ),
                 ),

@@ -1,16 +1,19 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
+import 'package:flutter/services.dart'; // Required for SystemChrome
 import 'package:youtube_player_iframe/youtube_player_iframe.dart';
 import '../../domain/entities/video_entity.dart';
-import 'package:logging/logging.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:logging/logging.dart';
+import '../widgets/video_list_item.dart'; // For helper functions like formatVideoDuration etc.
 
 class VideoPlayerScreen extends StatefulWidget {
   final VideoEntity video;
-  
+  // final List<VideoEntity>? currentPlaylist; // For potential 'Up Next' feature
+
   const VideoPlayerScreen({
     super.key,
     required this.video,
+    // this.currentPlaylist,
   });
 
   @override
@@ -18,300 +21,218 @@ class VideoPlayerScreen extends StatefulWidget {
 }
 
 class _VideoPlayerScreenState extends State<VideoPlayerScreen> {
-  final Logger _logger = Logger('VideoPlayerScreen');
   late YoutubePlayerController _controller;
-  bool _isFullScreen = false;
-  bool _isVideoLoading = true;
-  String? _errorMessage;
-  
+  final Logger _logger = Logger('VideoPlayerScreen');
+  bool _isPlayerReady = false;
+
   @override
   void initState() {
     super.initState();
-    _initializePlayer();
-  }
-  
-  void _initializePlayer() {
-    try {
-      // Extract video ID from YouTube URL or use the direct ID
-      String videoId = widget.video.id;
-      
-      // Try to extract from URL if it's a YouTube URL
-      if (widget.video.youtubeUrl.contains('youtube.com/watch') || 
-          widget.video.youtubeUrl.contains('youtu.be/')) {
-        try {
-          final uri = Uri.parse(widget.video.youtubeUrl);
-          if (uri.host == 'youtu.be') {
-            videoId = uri.pathSegments.first;
-          } else if (uri.host.contains('youtube.com')) {
-            videoId = uri.queryParameters['v'] ?? videoId;
-          }
-        } catch (e) {
-          _logger.warning('Error extracting YouTube ID from URL: ${widget.video.youtubeUrl}');
-        }
+    _controller = YoutubePlayerController.fromVideoId(
+      videoId: widget.video.id,
+      autoPlay: true,
+      params: const YoutubePlayerParams(
+        showControls: true,
+        showFullscreenButton: true,
+        strictRelatedVideos: true,
+        // privacyEnhanced: true, // Commenting out for now, may not exist or be named differently
+      ),
+    );
+
+    _controller.listen((event) { // event is YoutubePlayerValue
+      if (!mounted) return; // Check mounted state first
+
+      // Simplify readiness check: if not unknown, it's initialized.
+      final bool isPlayerConsideredReady = event.playerState != PlayerState.unknown;
+                                         
+      if (isPlayerConsideredReady && !_isPlayerReady) {
+        if (mounted) setState(() => _isPlayerReady = true);
+        _logger.info('YouTube Player is ready for video: ${widget.video.title} with state: ${event.playerState}');
       }
-      
-      _logger.info('Initializing YouTube player with video ID: $videoId');
-      
-      _controller = YoutubePlayerController.fromVideoId(
-        videoId: videoId,
-        params: const YoutubePlayerParams(
-          showControls: true,
-          showFullscreenButton: true,
-          mute: false,
-        ),
-      );
-      
-      _controller.setFullScreenListener((isFullScreen) {
-        setState(() {
-          _isFullScreen = isFullScreen;
-        });
-      });
-      
-      // Listen to controller events for loading status
-      _controller.listen((event) {
-        final ps = event.playerState;
-        if (ps == PlayerState.playing || ps == PlayerState.paused) {
+      if (event.playerState == PlayerState.ended) {
+        _logger.info('Video finished: ${widget.video.title}');
+      }
+      if (event.hasError) {
+        _logger.severe('YouTube Player Error: ${event.error}');
+      }
+    });
+    
+    _controller.setFullScreenListener((isFullScreen) {
+      _logger.info('Fullscreen change: $isFullScreen');
+      if (isFullScreen) {
+        SystemChrome.setPreferredOrientations([
+          DeviceOrientation.landscapeLeft,
+          DeviceOrientation.landscapeRight,
+        ]);
+      } else {
+        SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
+        // It's common for SystemChrome.setPreferredOrientations to take a bit to apply.
+        // Delaying the rebuild slightly can help ensure the layout is correct.
+        Future.delayed(const Duration(milliseconds: 100), () {
           if (mounted) {
-            setState(() {
-              _isVideoLoading = false;
-            });
+            setState(() {}); // Force rebuild to adjust layout if necessary
           }
-        }
-      });
-      
-      // Set a timeout to check if the player is still loading after 5 seconds
-      Future.delayed(const Duration(seconds: 5), () {
-        if (mounted && _isVideoLoading) {
-          setState(() {
-            _isVideoLoading = false;
-          });
-        }
-      });
-      
-      // Set orientation to allow both portrait and landscape
-      SystemChrome.setPreferredOrientations([
-        DeviceOrientation.portraitUp,
-        DeviceOrientation.landscapeLeft,
-        DeviceOrientation.landscapeRight,
-      ]);
-      
-      // Start playback automatically
-      _controller.playVideo();
-      
-    } catch (e, stackTrace) {
-      _logger.severe('Error initializing YouTube player: $e', e, stackTrace);
-      setState(() {
-        _errorMessage = 'Failed to initialize video player: $e';
-        _isVideoLoading = false;
-      });
-    }
+        });
+      }
+    });
   }
-  
+
   @override
   void dispose() {
-    _logger.info('Disposing VideoPlayerScreen');
-    
-    // Safe cleanup of controller
-    try {
-      _controller.close();
-    } catch (e) {
-      _logger.warning('Error disposing YouTube controller: $e');
-    }
-    
-    // Reset to portrait mode when leaving
-    try {
-      SystemChrome.setPreferredOrientations([
-        DeviceOrientation.portraitUp,
-      ]);
-    } catch (e) {
-      _logger.warning('Error resetting orientation: $e');
-    }
-    
+    _controller.close();
+    // Ensure orientation is reset if screen is disposed while in landscape
+    SystemChrome.setPreferredOrientations([
+      DeviceOrientation.portraitUp,
+      DeviceOrientation.landscapeLeft,
+      DeviceOrientation.landscapeRight,
+    ]);
     super.dispose();
   }
-  
-  // Open video in external YouTube app
-  Future<void> _openInYouTube() async {
-    try {
-      final url = Uri.parse(widget.video.youtubeUrl);
-      final canLaunch = await canLaunchUrl(url);
-      
-      if (canLaunch) {
-        await launchUrl(
-          url,
-          mode: LaunchMode.externalApplication,
-        );
-      } else {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Could not open YouTube app')),
-          );
-        }
-      }
-    } catch (e) {
-      _logger.warning('Error launching YouTube: $e');
+
+  Future<void> _launchInYouTube(String videoId) async {
+    final Uri youtubeUrl = Uri.parse('https://www.youtube.com/watch?v=$videoId');
+    if (await canLaunchUrl(youtubeUrl)) {
+      await launchUrl(youtubeUrl, mode: LaunchMode.externalApplication);
+    } else {
+      _logger.severe('Could not launch YouTube URL: $youtubeUrl');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Could not open YouTube app')),
+          const SnackBar(content: Text('Could not open in YouTube.')),
         );
       }
     }
   }
-  
+
   @override
   Widget build(BuildContext context) {
-    // Error state
-    if (_errorMessage != null) {
-      return Scaffold(
+    final theme = Theme.of(context);
+
+    return YoutubePlayerControllerProvider(
+      controller: _controller,
+      child: Scaffold(
         appBar: AppBar(
-          title: Text(widget.video.title),
+          title: Text(widget.video.title, style: const TextStyle(fontSize: 18)),
           leading: IconButton(
-            icon: const Icon(Icons.arrow_back),
+            icon: const Icon(Icons.close_rounded), // Close icon for a player screen
             onPressed: () => Navigator.of(context).pop(),
+            tooltip: 'Close Player',
           ),
-          actions: [
-            IconButton(
-              icon: const Icon(Icons.open_in_browser),
-              onPressed: _openInYouTube,
-              tooltip: 'Open in YouTube',
-            ),
-          ],
+          elevation: 1, // Subtle elevation
         ),
-        body: Center(
+        body: SafeArea(
           child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              const Icon(Icons.error_outline, size: 48, color: Colors.red),
-              const SizedBox(height: 16),
-              Text('Error playing video', style: Theme.of(context).textTheme.titleMedium),
-              const SizedBox(height: 8),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 32.0),
-                child: Text(
-                  _errorMessage!,
-                  textAlign: TextAlign.center,
-                  style: Theme.of(context).textTheme.bodySmall,
-                ),
-              ),
-              const SizedBox(height: 24),
-              ElevatedButton.icon(
-                onPressed: _openInYouTube,
-                icon: const Icon(Icons.open_in_browser),
-                label: const Text('Open in YouTube App'),
-              ),
-              const SizedBox(height: 8),
-              TextButton(
-                onPressed: () => Navigator.of(context).pop(),
-                child: const Text('Go Back'),
-              ),
-            ],
-          ),
-        ),
-      );
-    }
-    
-    return Scaffold(
-      appBar: _isFullScreen 
-        ? null 
-        : AppBar(
-            title: Text(widget.video.title, 
-              style: const TextStyle(fontSize: 18),
-              overflow: TextOverflow.ellipsis,
-            ),
-            leading: IconButton(
-              icon: const Icon(Icons.arrow_back),
-              onPressed: () => Navigator.of(context).pop(),
-            ),
-            actions: [
-              IconButton(
-                icon: const Icon(Icons.open_in_browser),
-                onPressed: _openInYouTube,
-                tooltip: 'Open in YouTube',
-              ),
-            ],
-          ),
-      body: Column(
-        children: [
-          // Player
-          _isVideoLoading
-            ? const AspectRatio(
+              AspectRatio(
                 aspectRatio: 16 / 9,
-                child: Center(
-                  child: CircularProgressIndicator(),
-                ),
-              )
-            : YoutubePlayer(
-                controller: _controller,
-                aspectRatio: 16 / 9,
-              ),
-          
-          // Open in YouTube button - always visible right below the player
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            child: ElevatedButton.icon(
-              onPressed: _openInYouTube,
-              icon: const Icon(Icons.ondemand_video),
-              label: const Text('Open in YouTube App'),
-              style: ElevatedButton.styleFrom(
-                padding: const EdgeInsets.symmetric(vertical: 12),
-              ),
-            ),
-          ),
-          
-          // Video info - only shown when not fullscreen
-          if (!_isFullScreen)
-            Expanded(
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      widget.video.title,
-                      style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    
-                    if (widget.video.channelTitle != null)
-                      Text(
-                        widget.video.channelTitle!,
-                        style: Theme.of(context).textTheme.titleSmall,
-                      ),
-                    
-                    if (widget.video.viewCount != null) ...[
-                      const SizedBox(height: 4),
-                      Text(
-                        widget.video.viewCount!,
-                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          color: Colors.grey[600],
+                child: _isPlayerReady
+                    ? YoutubePlayer(controller: _controller)
+                    : Container(
+                        color: Colors.black,
+                        child: const Center(
+                          child: CircularProgressIndicator.adaptive(
+                            valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                          ),
                         ),
                       ),
-                    ],
-                    
-                    const Divider(height: 24),
-                    
-                    if (widget.video.description != null && widget.video.description!.isNotEmpty) ...[
+              ),
+              Expanded(
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.all(16.0),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
                       Text(
-                        'Description',
-                        style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        widget.video.title,
+                        style: theme.textTheme.headlineSmall?.copyWith(
                           fontWeight: FontWeight.bold,
+                          height: 1.3,
                         ),
+                      ),
+                      const SizedBox(height: 12),
+                      Row(
+                        children: [
+                          Icon(Icons.person_outline, size: 18, color: theme.colorScheme.onSurfaceVariant),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              widget.video.channelTitle ?? 'Unknown Channel',
+                              style: theme.textTheme.bodyMedium?.copyWith(
+                                color: theme.colorScheme.onSurfaceVariant,
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ],
                       ),
                       const SizedBox(height: 8),
-                      Text(
-                        widget.video.description!,
-                        style: Theme.of(context).textTheme.bodyMedium,
+                      Row(
+                        children: [
+                          Icon(Icons.visibility_outlined, size: 18, color: theme.colorScheme.onSurfaceVariant),
+                          const SizedBox(width: 8),
+                          Text(
+                            formatViewCount(widget.video.viewCount), // Called directly
+                            style: theme.textTheme.bodyMedium?.copyWith(
+                              color: theme.colorScheme.onSurfaceVariant,
+                            ),
+                          ),
+                          const SizedBox(width: 4), // Spacer
+                          Text('•', style: theme.textTheme.bodyMedium?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
+                          const SizedBox(width: 4), // Spacer
+                          Icon(Icons.calendar_today_outlined, size: 16, color: theme.colorScheme.onSurfaceVariant),
+                          const SizedBox(width: 6),
+                          Text(
+                            formatPublishedDate(widget.video.publishedAt), // Called directly
+                            style: theme.textTheme.bodyMedium?.copyWith(
+                              color: theme.colorScheme.onSurfaceVariant,
+                            ),
+                          ),
+                        ],
                       ),
+                      const Divider(height: 24, thickness: 1),
+                      if (widget.video.description != null && widget.video.description!.isNotEmpty)
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Description',
+                              style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
+                            ),
+                            const SizedBox(height: 8),
+                            Text(
+                              widget.video.description!,
+                              style: theme.textTheme.bodyMedium?.copyWith(
+                                height: 1.5,
+                                color: theme.colorScheme.onSurfaceVariant.withOpacity(0.9),
+                              ),
+                            ),
+                            const SizedBox(height: 16),
+                          ],
+                        ),
+                      Center(
+                        child: ElevatedButton.icon(
+                          icon: const Icon(Icons.play_circle_outline_rounded, size: 20),
+                          label: const Text('Open in YouTube App'),
+                          style: ElevatedButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                            textStyle: theme.textTheme.labelLarge,
+                            // backgroundColor: theme.colorScheme.secondary, // Optional: if you want distinct color
+                            // foregroundColor: theme.colorScheme.onSecondary, // Optional: if you want distinct color
+                          ),
+                          onPressed: () => _launchInYouTube(widget.video.id),
+                        ),
+                      ),
+                      const SizedBox(height: 16), // Extra spacing at the bottom
+                      // TODO: Implement 'Up Next' or related videos section if currentPlaylist is available
                     ],
-                  ],
+                  ),
                 ),
               ),
-            ),
-        ],
+            ],
+          ),
+        ),
       ),
     );
   }
-} 
+}

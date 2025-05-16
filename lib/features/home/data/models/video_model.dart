@@ -3,20 +3,13 @@ import '../../domain/entities/video_entity.dart';
 /// Model implementation of VideoEntity
 class VideoModel extends VideoEntity {
   const VideoModel({
-    required String id,
-    required String title,
-    String? thumbnailUrl,
-    String? duration,
-    String? source,
-    String? url,
-  }) : super(
-         id: id,
-         title: title,
-         thumbnailUrl: thumbnailUrl,
-         duration: duration,
-         source: source,
-         url: url,
-       );
+    required super.id,
+    required super.title,
+    super.thumbnailUrl,
+    super.duration,
+    super.source,
+    super.url,
+  });
   
   // Factory constructor to parse data from API
   factory VideoModel.fromJson(Map<String, dynamic> json) {

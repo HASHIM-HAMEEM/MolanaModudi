@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:modudi/models/book_models.dart';
 import 'package:modudi/core/providers/books_providers.dart';
 import 'book_card.dart';
 
@@ -12,13 +11,13 @@ class BooksGrid extends ConsumerWidget {
   final EdgeInsetsGeometry? padding;
   
   const BooksGrid({
-    Key? key,
+    super.key,
     this.category,
     this.featured = false,
     this.crossAxisCount = 2,
     this.childAspectRatio = 0.75,
     this.padding,
-  }) : super(key: key);
+  });
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -103,111 +102,23 @@ class BooksGrid extends ConsumerWidget {
           itemCount: books.length,
           itemBuilder: (context, index) {
             final book = books[index];
-            return BookCard(book: book);
+            return BookCard(
+              title: book.title ?? 'Untitled',
+              category: book.author ?? 'Unknown',
+              coverImageUrl: book.thumbnailUrl ?? '',
+              onTap: () {
+                // Navigate to book detail screen
+                Navigator.pushNamed(
+                  context,
+                  '/book/${book.id}',
+                  arguments: book,
+                );
+              },
+            );
           },
         );
       },
     );
   }
 }
-
-class BookCard extends StatelessWidget {
-  final Book book;
-  
-  const BookCard({
-    Key? key,
-    required this.book,
-  }) : super(key: key);
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: () {
-        // Navigate to book detail screen
-        Navigator.pushNamed(
-          context,
-          '/book/${book.id}',
-          arguments: book,
-        );
-      },
-      child: Card(
-        clipBehavior: Clip.antiAlias,
-        elevation: 2,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(8),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Book cover image
-            Expanded(
-              child: Container(
-                width: double.infinity,
-                decoration: BoxDecoration(
-                  color: Colors.grey[200],
-                ),
-                child: book.thumbnailUrl != null && book.thumbnailUrl!.isNotEmpty
-                    ? Image.network(
-                        book.thumbnailUrl!,
-                        fit: BoxFit.cover,
-                        errorBuilder: (context, error, stackTrace) => const Center(
-                          child: Icon(
-                            Icons.broken_image,
-                            size: 40,
-                            color: Colors.grey,
-                          ),
-                        ),
-                        loadingBuilder: (context, child, loadingProgress) {
-                          if (loadingProgress == null) return child;
-                          return Center(
-                            child: CircularProgressIndicator(
-                              value: loadingProgress.expectedTotalBytes != null
-                                  ? loadingProgress.cumulativeBytesLoaded /
-                                      loadingProgress.expectedTotalBytes!
-                                  : null,
-                            ),
-                          );
-                        },
-                      )
-                    : const Center(
-                        child: Icon(
-                          Icons.book,
-                          size: 40,
-                          color: Colors.grey,
-                        ),
-                      ),
-              ),
-            ),
-            // Book info
-            Padding(
-              padding: const EdgeInsets.all(8.0),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    book.title ?? 'Untitled',
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  if (book.author != null)
-                    Text(
-                      book.author!,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        color: Colors.grey[600],
-                        fontSize: 12,
-                      ),
-                    ),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-} 
+ 

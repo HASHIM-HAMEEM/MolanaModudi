@@ -8,17 +8,16 @@ import '../../../../routes/route_names.dart'; // Import RouteNames
 // import '../../../settings/presentation/provider/theme_provider.dart'; // FIXME: File missing
 import '../providers/home_notifier.dart';
 import '../providers/home_state.dart';
-import '../widgets/biography_card.dart';
-import '../widgets/book_card.dart';
-import '../widgets/books_grid.dart'; // Import our new BooksGrid component
-import '../widgets/category_card.dart';
+// Import our new BooksGrid component
+import '../widgets/category_grid.dart'; // Import our new CategoryGrid component
 import '../widgets/video_lectures_section.dart'; // Import our new widget
-import '../../../videos/presentation/screens/videos_screen.dart'; // Import VideosScreen
+// Import VideosScreen
 // import '../widgets/recent_article_card.dart'; // FIXME: File missing
 // import '../widgets/section_header.dart'; // FIXME: File missing
 // import '../widgets/video_lecture_card.dart'; // FIXME: File missing
 // import '../widgets/welcome_banner.dart'; // FIXME: File missing
 import '../../../../core/providers/books_providers.dart'; // Import books providers
+import '../../../../core/utils/app_logger.dart'; // Import AppLogger
 
 class HomeScreen extends ConsumerStatefulWidget {
   const HomeScreen({super.key});
@@ -28,11 +27,34 @@ class HomeScreen extends ConsumerStatefulWidget {
 }
 
 class _HomeScreenState extends ConsumerState<HomeScreen> {
+  bool _isSearchActive = false;
+  final TextEditingController _searchQueryController = TextEditingController();
+  final FocusNode _searchFocusNode = FocusNode();
+
   @override
   void initState() {
     super.initState();
     // Fetch data when the screen initializes
     Future.microtask(() => ref.read(homeNotifierProvider.notifier).loadHomeData());
+  }
+
+  @override
+  void dispose() {
+    _searchQueryController.dispose();
+    _searchFocusNode.dispose();
+    super.dispose();
+  }
+
+  void _navigateToSearchScreen(String query) {
+    if (query.trim().isEmpty) return;
+    // Ensure search is deactivated when navigating away
+    // and text field is cleared for next time.
+    setState(() {
+      _isSearchActive = false;
+    });
+    final encodedQuery = Uri.encodeComponent(query.trim());
+    // Using goNamed for clarity with query parameters
+    context.goNamed(RouteNames.search, queryParameters: {'q': encodedQuery});
   }
 
   @override
@@ -43,25 +65,64 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     final isDarkMode = Theme.of(context).brightness == Brightness.dark; // Temporary fallback
 
     return Scaffold(
-      // Modern emerald green header with menu and search
       appBar: AppBar(
         backgroundColor: const Color(0xFF047857), // emerald-700
         foregroundColor: Colors.white,
-        title: const Row(
-          children: [
-            Icon(Icons.menu, size: 24),
-            SizedBox(width: 16),
-            Text('Maulana Maududi', style: TextStyle(fontWeight: FontWeight.bold)),
-          ],
-        ),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.search),
-            onPressed: () {
-              // Navigate to search screen
-            },
-          ),
-        ],
+        leading: _isSearchActive
+            ? IconButton(
+                icon: const Icon(Icons.arrow_back),
+                onPressed: () {
+                  setState(() {
+                    _isSearchActive = false;
+                    _searchQueryController.clear();
+                    _searchFocusNode.unfocus(); // Explicitly unfocus
+                  });
+                },
+              )
+            : IconButton(
+                icon: const Icon(Icons.menu),
+                onPressed: () {
+                  // Placeholder for drawer functionality
+                  // Scaffold.of(context).openDrawer(); 
+                  AppLogger.logUserAction("HomeScreen", "Menu button tapped");
+                },
+              ),
+        title: _isSearchActive
+            ? TextField(
+                controller: _searchQueryController,
+                focusNode: _searchFocusNode,
+                autofocus: true,
+                decoration: InputDecoration(
+                  hintText: 'Search books, videos...',
+                  hintStyle: TextStyle(color: Colors.white.withOpacity(0.7)),
+                  border: InputBorder.none,
+                ),
+                style: const TextStyle(color: Colors.white, fontSize: 18),
+                onSubmitted: _navigateToSearchScreen,
+              )
+            : const Text('Maulana Maududi', style: TextStyle(fontWeight: FontWeight.bold)),
+        actions: _isSearchActive
+            ? [
+                IconButton(
+                  icon: const Icon(Icons.clear),
+                  onPressed: () {
+                    _searchQueryController.clear();
+                  },
+                ),
+              ]
+            : [
+                IconButton(
+                  icon: const Icon(Icons.search),
+                  onPressed: () {
+                    setState(() {
+                      _isSearchActive = true;
+                      // Focus will be handled by autofocus: true on TextField
+                      // and explicitly if needed after build if autofocus is tricky
+                      // WidgetsBinding.instance.addPostFrameCallback((_) => _searchFocusNode.requestFocus());
+                    });
+                  },
+                ),
+              ],
       ),
       body: _buildBody(context, homeState),
       // FIXME: BottomNavBar is undefined due to missing import
@@ -244,7 +305,15 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                                   margin: const EdgeInsets.only(right: 16),
                                   child: GestureDetector(
                                     onTap: () {
-                                      context.go('/firebase-book/${book.id}');
+                                      // Log the book click using AppLogger
+                                      AppLogger.logUserAction('HomeScreen', 'book_clicked', 
+                                        details: {'bookId': book.firestoreDocId, 'title': book.title});
+                                      
+                                      // Use bookDetailItem route that shows BookDetailScreen instead of firebase-book route
+                                      context.goNamed(
+                                        RouteNames.bookDetailItem,
+                                        pathParameters: {'bookId': book.firestoreDocId}
+                                      );
                                     },
                                     child: Column(
                                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -308,77 +377,67 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                   
                   const SizedBox(height: 24),
                   
-                  // Categories with grid layout
+                  // Categories with our new CategoryGrid component
                   Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 16),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    child: Column(
                       children: [
-                        Text(
-                          'Categories',
-                          style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                            fontWeight: FontWeight.bold,
-                          ),
+                        // Header with View All button
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Text(
+                              'Categories',
+                              style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                            TextButton(
+                              onPressed: () {
+                                // Navigate to categories screen
+                                context.go(RouteNames.library);
+                              },
+                              child: Row(
+                                children: [
+                                  Text(
+                                    'View All',
+                                    style: TextStyle(
+                                      color: const Color(0xFF047857), // emerald-700
+                                      fontWeight: FontWeight.w500,
+                                    ),
+                                  ),
+                                  const Icon(
+                                    Icons.chevron_right,
+                                    size: 16,
+                                    color: Color(0xFF047857), // emerald-700
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
                         ),
-                        TextButton(
-                          onPressed: () {
-                            // Navigate to categories screen
-                            context.go(RouteNames.library);
+                        
+                        const SizedBox(height: 16),
+                        
+                        // Category grid with dynamic data
+                        CategoryGrid(
+                          categories: state.categories,
+                          showTitle: false, // We already have a title above
+                          onCategoryTap: (categoryId) {
+                            // Navigate to category books
+                            AppLogger.logUserAction('HomeScreen', 'category_tapped', 
+                              details: {'categoryId': categoryId});
+                              
+                            // Navigate to category books screen
+                            context.pushNamed(
+                              RouteNames.categoryBooks,
+                              pathParameters: {'categoryId': categoryId},
+                            );
                           },
-                          child: Row(
-                            children: [
-                              Text(
-                                'View All',
-                                style: TextStyle(
-                                  color: const Color(0xFF047857), // emerald-700
-                                  fontWeight: FontWeight.w500,
-                                ),
-                              ),
-                              const Icon(
-                                Icons.chevron_right,
-                                size: 16,
-                                color: Color(0xFF047857), // emerald-700
-                              ),
-                            ],
-                          ),
                         ),
                       ],
                     ),
                   ),
-                  const SizedBox(height: 8),
-                  // Grid layout for categories
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 16),
-                    child: state.categories.isEmpty
-                        ? const Center(child: Text('No categories available'))
-                        : GridView.builder(
-                            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                              crossAxisCount: 2,
-                              mainAxisSpacing: 12,
-                              crossAxisSpacing: 12,
-                              childAspectRatio: 2.5, // Control card height
-                            ),
-                            shrinkWrap: true,
-                            physics: const NeverScrollableScrollPhysics(),
-                            itemCount: state.categories.length,
-                            itemBuilder: (context, index) {
-                              final category = state.categories[index];
-                              return CategoryCard(
-                                name: category.name,
-                                count: category.count,
-                                iconBackgroundColor: category.displayColor ?? Colors.grey.shade200,
-                                icon: Icons.book_outlined,
-                                onTap: () {
-                                  // Navigate to library with category filter
-                                  context.go(
-                                    '${RouteNames.library}?category=${Uri.encodeComponent(category.name)}'
-                                  );
-                                },
-                              );
-                            },
-                          ),
-                  ),
-                  
                   const SizedBox(height: 24),
                   
                   // Video Lectures section - using custom widget
@@ -541,62 +600,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                   
                   const SizedBox(height: 32),
                   
-                  // Firebase Books Banner
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 16),
-                    child: InkWell(
-                      onTap: () {
-                        context.go(RouteNames.library);
-                      },
-                      child: Container(
-                        padding: const EdgeInsets.all(16),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFF10B981), // emerald-500
-                          borderRadius: BorderRadius.circular(12),
-                          boxShadow: [
-                            BoxShadow(
-                              color: Colors.black.withOpacity(0.05),
-                              blurRadius: 8,
-                              offset: const Offset(0, 2),
-                            ),
-                          ],
-                        ),
-                        child: Row(
-                          children: [
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  const Text(
-                                    "Browse All Books",
-                                    style: TextStyle(
-                                      fontSize: 18,
-                                      fontWeight: FontWeight.bold,
-                                      color: Colors.white,
-                                    ),
-                                  ),
-                                  const SizedBox(height: 4),
-                                  Text(
-                                    "All books are powered by Firebase",
-                                    style: TextStyle(
-                                      fontSize: 14,
-                                      color: Colors.white.withOpacity(0.9),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                            const Icon(
-                              Icons.arrow_forward,
-                              color: Colors.white,
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ),
-                  
-                  const SizedBox(height: 32),
+                  // Removed 'Browse All Books' banner as requested
+                  const SizedBox(height: 16),
                 ],
               ),
             ),

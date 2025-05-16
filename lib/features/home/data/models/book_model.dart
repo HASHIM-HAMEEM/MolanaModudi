@@ -3,26 +3,16 @@ import 'package:modudi/features/home/domain/entities/book_entity.dart';
 /// Model class for parsing book data from the API.
 class BookModel extends BookEntity {
   const BookModel({
-    required String id,
-    required String title,
-    String? creator,
-    String? coverUrl,
-    String? category,
-    String? year,
-    List<String>? languages,
-    String? language,
-    Map<String, dynamic>? metadata,
-  }) : super(
-          id: id,
-          title: title,
-          creator: creator,
-          coverUrl: coverUrl,
-          category: category,
-          year: year,
-          languages: languages,
-          language: language,
-          metadata: metadata,
-        );
+    required super.id,
+    required super.title,
+    super.creator,
+    super.coverUrl,
+    super.category,
+    super.year,
+    super.languages,
+    super.language,
+    super.metadata,
+  });
 
   /// Factory constructor to convert API JSON to BookModel
   factory BookModel.fromJson(Map<String, dynamic> json) {

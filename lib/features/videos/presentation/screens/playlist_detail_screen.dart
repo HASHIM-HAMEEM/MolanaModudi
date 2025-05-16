@@ -1,3 +1,4 @@
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import '../../domain/entities/playlist_entity.dart';
 import '../../domain/entities/video_entity.dart';
@@ -5,8 +6,8 @@ import '../widgets/video_list_item.dart';
 import '../providers/video_provider.dart';
 import 'package:logging/logging.dart';
 import 'package:go_router/go_router.dart';
-import 'video_player_screen.dart';
-import 'package:url_launcher/url_launcher.dart';
+import 'package:flutter_staggered_animations/flutter_staggered_animations.dart'; 
+import 'video_player_screen.dart'; 
 
 class PlaylistDetailScreen extends StatefulWidget {
   final String playlistId;
@@ -26,6 +27,8 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
   
   late Future<PlaylistEntity?> _playlistFuture;
   late Future<List<VideoEntity>> _videosFuture;
+  bool _isLoadingPlaylist = true;
+  bool _isLoadingVideos = true;
   
   @override
   void initState() {
@@ -34,96 +37,35 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
   }
   
   void _loadData() {
-    _playlistFuture = _videoProvider.getPlaylist(widget.playlistId);
-    _videosFuture = _videoProvider.getPlaylistVideos(widget.playlistId);
+    setState(() {
+      _isLoadingPlaylist = true;
+      _isLoadingVideos = true;
+    });
+    _playlistFuture = _videoProvider.getPlaylist(widget.playlistId).whenComplete(() {
+      if (mounted) setState(() => _isLoadingPlaylist = false);
+    });
+    _videosFuture = _videoProvider.getPlaylistVideos(widget.playlistId).whenComplete(() {
+      if (mounted) setState(() => _isLoadingVideos = false);
+    });
   }
   
   Future<void> _refreshData() async {
+    _logger.info('Refreshing playlist details and videos for ID: ${widget.playlistId}');
     setState(() {
-      _videoProvider.clearCache();
+      _videoProvider.clearCache(); // Consider more granular caching if needed
       _loadData();
     });
   }
   
-  void _openVideoPlayer(BuildContext context, VideoEntity video) async {
-    try {
-      // Test the YouTube API connection first
-      final result = await _videoProvider.testApiConnection();
-      
-      if (!result) {
-        // API connection failed, show a more detailed error
-        if (context.mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Cannot connect to YouTube API. Please try using the external YouTube app.'),
-              duration: Duration(seconds: 3),
-            ),
-          );
-        }
-      }
-    } catch (e) {
-      _logger.warning('Error testing YouTube API: $e');
-    }
-  
-    // First offer choice of how to view the video
-    if (context.mounted) {
-      showModalBottomSheet(
-        context: context,
-        builder: (context) => Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            ListTile(
-              title: Text(
-                video.title,
-                style: const TextStyle(
-                  fontWeight: FontWeight.bold,
-                  fontSize: 14,
-                ),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-              ),
-              enabled: false,
-            ),
-            const Divider(),
-            ListTile(
-              leading: const Icon(Icons.play_circle_outlined),
-              title: const Text('Play in-app (experimental)'),
-              subtitle: const Text('Opens the video player within this app'),
-              onTap: () {
-                Navigator.of(context).pop();
-                // Use MaterialPageRoute for better stability
-                Navigator.of(context).push(
-                  MaterialPageRoute(
-                    builder: (context) => VideoPlayerScreen(video: video),
-                  ),
-                );
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.open_in_browser),
-              title: const Text('Open in YouTube app'),
-              subtitle: const Text('Opens in the YouTube app for better playback (recommended)'),
-              onTap: () async {
-                Navigator.of(context).pop();
-                final url = Uri.parse(video.youtubeUrl);
-                try {
-                  await launchUrl(
-                    url,
-                    mode: LaunchMode.externalApplication,
-                  );
-                } catch (e) {
-                  if (context.mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Could not open YouTube')),
-                    );
-                  }
-                }
-              },
-            ),
-          ],
-        ),
-      );
-    }
+  Future<void> _openVideoPlayer(BuildContext context, VideoEntity video, List<VideoEntity> currentPlaylistVideos) async {
+    // API connection test removed for brevity, can be added back if essential
+    _logger.info("Opening in-app player for video: ${video.title}");
+    // Potentially pass the current list of videos to the player for next/prev functionality
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (context) => VideoPlayerScreen(video: video /*, currentPlaylist: currentPlaylistVideos */),
+      ),
+    );
   }
   
   @override
@@ -131,277 +73,227 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
     final theme = Theme.of(context);
     
     return Scaffold(
-      appBar: AppBar(
-        title: FutureBuilder<PlaylistEntity?>(
-          future: _playlistFuture,
-          builder: (context, snapshot) {
-            if (snapshot.connectionState == ConnectionState.waiting) {
-              return const Text('Loading playlist...');
-            }
-            if (snapshot.hasError || !snapshot.hasData) {
-              return const Text('Playlist');
-            }
-            return Text(
-              snapshot.data!.title,
-              style: const TextStyle(fontSize: 20),
-              overflow: TextOverflow.ellipsis,
-            );
-          },
-        ),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.refresh),
-            onPressed: _refreshData,
-            tooltip: 'Refresh',
-          ),
-        ],
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back),
-          onPressed: () => context.go('/videos'),
-        ),
-      ),
+      // No AppBar here, it's part of CustomScrollView
       body: RefreshIndicator(
         onRefresh: _refreshData,
-        child: Column(
-          children: [
-            // Playlist Info Card
+        color: theme.colorScheme.primary,
+        child: CustomScrollView(
+          slivers: [
+            SliverAppBar(
+              expandedHeight: 250.0, // Height of the expanded app bar
+              floating: false,
+              pinned: true, // Keeps the app bar visible when scrolling up
+              stretch: true,
+              backgroundColor: theme.scaffoldBackgroundColor, // Or a specific color
+              foregroundColor: theme.colorScheme.onSurface,
+              leading: IconButton(
+                icon: const Icon(Icons.arrow_back_ios_new_rounded),
+                onPressed: () => context.go('/videos'),
+                tooltip: 'Back to Playlists',
+              ),
+              actions: [
+                IconButton(
+                  icon: const Icon(Icons.refresh_rounded),
+                  onPressed: (_isLoadingPlaylist && _isLoadingVideos) ? null : _refreshData,
+                  tooltip: 'Refresh',
+                ),
+              ],
+              flexibleSpace: FlexibleSpaceBar(
+                centerTitle: true,
+                titlePadding: const EdgeInsets.symmetric(horizontal: 48.0, vertical: 12.0),
+                title: FutureBuilder<PlaylistEntity?>(
+                  future: _playlistFuture,
+                  builder: (context, snapshot) {
+                    if (snapshot.connectionState == ConnectionState.waiting && _isLoadingPlaylist) {
+                      return const Text('Loading...', style: TextStyle(fontSize: 16));
+                    }
+                    if (snapshot.hasError || !snapshot.hasData || snapshot.data == null) {
+                      return const Text('Playlist Details', style: TextStyle(fontSize: 16));
+                    }
+                    // Text will scale down and move with the AppBar
+                    return Text(
+                      snapshot.data!.title,
+                      style: TextStyle(
+                        color: theme.colorScheme.onSurface, 
+                        fontWeight: FontWeight.bold,
+                        fontSize: 16.0, // Adjust size as needed
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    );
+                  },
+                ),
+                background: FutureBuilder<PlaylistEntity?>(
+                  future: _playlistFuture,
+                  builder: (context, snapshot) {
+                    if (!snapshot.hasData || snapshot.data == null || snapshot.data!.thumbnailUrl == null || snapshot.data!.thumbnailUrl!.isEmpty) {
+                      return Container(
+                        color: theme.colorScheme.secondaryContainer.withOpacity(0.3),
+                        child: Center(
+                          child: Icon(
+                            Icons.video_library_outlined,
+                            size: 80,
+                            color: theme.colorScheme.onSecondaryContainer.withOpacity(0.5),
+                          ),
+                        ),
+                      );
+                    }
+                    return Hero(
+                      tag: 'playlist-thumbnail-${widget.playlistId}',
+                      child: CachedNetworkImage(
+                        imageUrl: snapshot.data!.thumbnailUrl!,
+                        fit: BoxFit.cover,
+                        placeholder: (context, url) => Container(color: theme.colorScheme.secondaryContainer.withOpacity(0.3)),
+                        errorWidget: (context, url, error) => Container(
+                          color: theme.colorScheme.errorContainer,
+                          child: Icon(Icons.broken_image_outlined, size: 50, color: theme.colorScheme.onErrorContainer),
+                        ),
+                      ),
+                    );
+                  },
+                ),
+                stretchModes: const [StretchMode.zoomBackground], 
+              ),
+            ),
+
+            // Playlist Description Section (Optional, can be part of SliverList or separate SliverToBoxAdapter)
             FutureBuilder<PlaylistEntity?>(
               future: _playlistFuture,
-              builder: (context, snapshot) {
-                if (snapshot.connectionState == ConnectionState.waiting) {
-                  return const SizedBox(
-                    height: 200,
-                    child: Center(child: CircularProgressIndicator()),
-                  );
+              builder: (context, playlistSnapshot) {
+                if (playlistSnapshot.connectionState == ConnectionState.waiting && _isLoadingPlaylist) {
+                  return const SliverToBoxAdapter(child: SizedBox.shrink()); // Show nothing while loading
                 }
-                
-                if (snapshot.hasError || !snapshot.hasData) {
-                  return SizedBox(
-                    height: 200,
-                    child: Center(
+                if (playlistSnapshot.hasData && playlistSnapshot.data != null && playlistSnapshot.data!.description != null && playlistSnapshot.data!.description!.isNotEmpty) {
+                  return SliverToBoxAdapter(
+                    child: Padding(
+                      padding: const EdgeInsets.all(16.0),
                       child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Icon(
-                            Icons.error_outline,
-                            size: 48,
-                            color: theme.colorScheme.error,
-                          ),
-                          const SizedBox(height: 16),
                           Text(
-                            'Failed to load playlist',
-                            style: theme.textTheme.titleMedium,
+                            'About this playlist',
+                            style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
                           ),
-                          if (snapshot.hasError)
-                            Padding(
-                              padding: const EdgeInsets.all(8.0),
-                              child: Text(
-                                snapshot.error.toString(),
-                                style: theme.textTheme.bodySmall,
-                                textAlign: TextAlign.center,
-                              ),
-                            ),
+                          const SizedBox(height: 8),
+                          Text(
+                            playlistSnapshot.data!.description!,
+                            style: theme.textTheme.bodyMedium?.copyWith(color: theme.colorScheme.onSurfaceVariant, height: 1.5),
+                          ),
+                          const Divider(height: 24),
                         ],
                       ),
                     ),
                   );
                 }
+                return const SliverToBoxAdapter(child: SizedBox.shrink()); // No description or error
+              },
+            ),
+
+            // Video List Header (Optional)
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: const EdgeInsets.only(left: 16.0, right: 16.0, top: 8.0, bottom: 8.0),
+                child: Text(
+                  'Videos in this playlist',
+                  style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
+                ),
+              ),
+            ),
+
+            // Video List
+            FutureBuilder<List<VideoEntity>>(
+              future: _videosFuture,
+              builder: (context, videoSnapshot) {
+                if (videoSnapshot.connectionState == ConnectionState.waiting && _isLoadingVideos) {
+                  return const SliverFillRemaining(
+                    child: Center(child: CircularProgressIndicator.adaptive()),
+                  );
+                }
                 
-                final playlist = snapshot.data!;
-                return Card(
-                  margin: const EdgeInsets.all(16),
-                  elevation: 4,
-                  clipBehavior: Clip.antiAlias,
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      // Playlist header with thumbnail
-                      Stack(
-                        children: [
-                          SizedBox(
-                            height: 160,
-                            width: double.infinity,
-                            child: playlist.thumbnailUrl != null && playlist.thumbnailUrl!.isNotEmpty
-                              ? Image.network(
-                                  playlist.thumbnailUrl!,
-                                  fit: BoxFit.cover,
-                                  errorBuilder: (context, error, stackTrace) {
-                                    return Container(
-                                      color: theme.colorScheme.primaryContainer,
-                                      child: Center(
-                                        child: Icon(
-                                          Icons.video_library,
-                                          size: 48,
-                                          color: theme.colorScheme.primary,
-                                        ),
-                                      ),
-                                    );
-                                  },
-                                )
-                              : Container(
-                                  color: theme.colorScheme.primaryContainer,
-                                  child: Center(
-                                    child: Icon(
-                                      Icons.video_library,
-                                      size: 48,
-                                      color: theme.colorScheme.primary,
-                                    ),
-                                  ),
-                                ),
-                          ),
-                          // Video count
-                          Positioned(
-                            bottom: 12,
-                            right: 12,
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 12,
-                                vertical: 6,
-                              ),
-                              decoration: BoxDecoration(
-                                color: Colors.black.withOpacity(0.7),
-                                borderRadius: BorderRadius.circular(16),
-                              ),
-                              child: Row(
-                                children: [
-                                  const Icon(
-                                    Icons.video_library,
-                                    color: Colors.white,
-                                    size: 16,
-                                  ),
-                                  const SizedBox(width: 4),
-                                  Text(
-                                    '${playlist.videoCount} videos',
-                                    style: const TextStyle(
-                                      color: Colors.white,
-                                      fontWeight: FontWeight.bold,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                      
-                      // Playlist details
-                      Padding(
-                        padding: const EdgeInsets.all(16.0),
+                if (videoSnapshot.hasError) {
+                  return SliverFillRemaining(
+                    child: Center(
+                      child: Padding(
+                        padding: const EdgeInsets.all(24.0),
                         child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisAlignment: MainAxisAlignment.center,
                           children: [
+                            Icon(Icons.error_outline_rounded, size: 64, color: theme.colorScheme.error),
+                            const SizedBox(height: 20),
+                            Text('Failed to Load Videos', style: theme.textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold), textAlign: TextAlign.center),
+                            const SizedBox(height: 12),
                             Text(
-                              playlist.title,
-                              style: theme.textTheme.titleLarge?.copyWith(
-                                fontWeight: FontWeight.bold,
-                              ),
+                              'We couldn\'t fetch the videos for this playlist. Please try refreshing.', 
+                              style: theme.textTheme.bodyMedium?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+                              textAlign: TextAlign.center,
                             ),
-                            const SizedBox(height: 8),
-                            if (playlist.description != null && 
-                                playlist.description!.isNotEmpty)
-                              Text(
-                                playlist.description!,
-                                style: theme.textTheme.bodyMedium,
-                                maxLines: 3,
-                                overflow: TextOverflow.ellipsis,
-                              ),
+                            const SizedBox(height: 24),
+                            ElevatedButton.icon(
+                              onPressed: _refreshData,
+                              icon: const Icon(Icons.refresh_rounded),
+                              label: const Text('Try Again'),
+                            ),
                           ],
                         ),
                       ),
-                    ],
-                  ),
-                );
-              },
-            ),
-            
-            // Video List
-            Expanded(
-              child: FutureBuilder<List<VideoEntity>>(
-                future: _videosFuture,
-                builder: (context, snapshot) {
-                  if (snapshot.connectionState == ConnectionState.waiting) {
-                    return const Center(child: CircularProgressIndicator());
-                  }
-                  
-                  if (snapshot.hasError) {
-                    return Center(
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(
-                            Icons.error_outline,
-                            size: 48,
-                            color: theme.colorScheme.error,
-                          ),
-                          const SizedBox(height: 16),
-                          Text(
-                            'Failed to load videos',
-                            style: theme.textTheme.titleMedium,
-                          ),
-                          Padding(
-                            padding: const EdgeInsets.all(16.0),
-                            child: Text(
-                              snapshot.error.toString(),
-                              style: theme.textTheme.bodySmall,
+                    ),
+                  );
+                }
+                
+                final videos = videoSnapshot.data ?? [];
+                if (videos.isEmpty) {
+                  return SliverFillRemaining(
+                    child: Center(
+                      child: Padding(
+                        padding: const EdgeInsets.all(24.0),
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(Icons.videocam_off_outlined, size: 64, color: theme.colorScheme.onSurfaceVariant.withOpacity(0.7)),
+                            const SizedBox(height: 20),
+                            Text('No Videos Here', style: theme.textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold), textAlign: TextAlign.center),
+                            const SizedBox(height: 12),
+                            Text(
+                              'This playlist doesn\'t have any videos yet. Pull down to refresh if you think this is an error.',
+                              style: theme.textTheme.bodyMedium?.copyWith(color: theme.colorScheme.onSurfaceVariant),
                               textAlign: TextAlign.center,
                             ),
-                          ),
-                          ElevatedButton.icon(
-                            onPressed: _refreshData,
-                            icon: const Icon(Icons.refresh),
-                            label: const Text('Try Again'),
-                          ),
-                        ],
+                          ],
+                        ),
                       ),
-                    );
-                  }
-                  
-                  if (!snapshot.hasData || snapshot.data!.isEmpty) {
-                    return Center(
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(
-                            Icons.video_library_outlined,
-                            size: 48,
-                            color: Colors.grey[400],
-                          ),
-                          const SizedBox(height: 16),
-                          Text(
-                            'No videos found in this playlist',
-                            style: theme.textTheme.titleMedium?.copyWith(
-                              color: Colors.grey[600],
+                    ),
+                  );
+                }
+                
+                return AnimationLimiter(
+                  child: SliverList(delegate: SliverChildBuilderDelegate(
+                    (context, index) {
+                      final video = videos[index];
+                      return AnimationConfiguration.staggeredList(
+                        position: index,
+                        duration: const Duration(milliseconds: 375),
+                        child: SlideAnimation(
+                          verticalOffset: 50.0,
+                          child: FadeInAnimation(
+                            child: Padding(
+                              padding: const EdgeInsets.only(bottom: 8.0), // Spacing for VideoListItem
+                              child: VideoListItem(
+                                video: video,
+                                onTap: () => _openVideoPlayer(context, video, videos),
+                              ),
                             ),
                           ),
-                          const SizedBox(height: 8),
-                          const Text(
-                            'Pull down to refresh',
-                            style: TextStyle(color: Colors.grey),
-                          ),
-                        ],
-                      ),
-                    );
-                  }
-                  
-                  final videos = snapshot.data!;
-                  return ListView.separated(
-                    padding: const EdgeInsets.all(16),
-                    itemCount: videos.length,
-                    separatorBuilder: (context, index) => const Divider(),
-                    itemBuilder: (context, index) {
-                      final video = videos[index];
-                      return VideoListItem(
-                        video: video,
-                        onTap: () => _openVideoPlayer(context, video),
+                        ),
                       );
                     },
-                  );
-                },
-              ),
+                    childCount: videos.length,
+                  )),
+                );
+              },
             ),
           ],
         ),
       ),
     );
   }
-} 
+}

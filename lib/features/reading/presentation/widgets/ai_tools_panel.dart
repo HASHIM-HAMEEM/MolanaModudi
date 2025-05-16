@@ -2,8 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:logging/logging.dart';
 import '../providers/reading_state.dart';
-import '../../../../core/providers/settings_provider.dart';
-import '../../domain/repositories/reading_repository.dart';
 import '../providers/reading_provider.dart';
 
 class AiToolsPanel extends ConsumerStatefulWidget {
@@ -48,13 +46,13 @@ class _AiToolsPanelState extends ConsumerState<AiToolsPanel> with SingleTickerPr
   
   // Settings
   String _targetLanguage = 'English';
-  List<String> _availableLanguages = [
+  final List<String> _availableLanguages = [
     'English', 'Spanish', 'French', 'German', 'Arabic', 
     'Chinese', 'Japanese', 'Korean', 'Russian', 'Portuguese',
     'Italian', 'Hindi', 'Urdu'
   ];
   
-  List<String> _voiceStyles = [
+  final List<String> _voiceStyles = [
     'Natural', 'Formal', 'Friendly', 'Enthusiastic', 
     'Calm', 'Authoritative', 'Poetic'
   ];
@@ -69,7 +67,7 @@ class _AiToolsPanelState extends ConsumerState<AiToolsPanel> with SingleTickerPr
   void dispose() {
     _searchController.dispose();
     _selectedTextController.dispose();
-    _tabController?.dispose();
+    _tabController.dispose();
     super.dispose();
   }
 
@@ -124,7 +122,7 @@ class _AiToolsPanelState extends ConsumerState<AiToolsPanel> with SingleTickerPr
                   // Tab Bar
                   Container(
                     decoration: BoxDecoration(
-                      color: theme.colorScheme.surfaceVariant.withOpacity(0.5),
+                      color: theme.colorScheme.surfaceContainerHighest.withOpacity(0.5),
                       border: Border(
                         bottom: BorderSide(
                           color: theme.colorScheme.outline.withOpacity(0.2),
@@ -237,7 +235,7 @@ class _AiToolsPanelState extends ConsumerState<AiToolsPanel> with SingleTickerPr
     final isLoading = widget.bookState.isAiFeatureLoading('chapters');
     final hasChapters = widget.bookState.aiExtractedChapters != null && 
                          widget.bookState.aiExtractedChapters!.isNotEmpty;
-    final isPdf = widget.bookState.status == ReadingStatus.displayingPdf;
+    final isPdf = widget.bookState.status == ReadingStatus.displayingText;
                          
     return ListView(
       padding: const EdgeInsets.all(16),
@@ -352,7 +350,7 @@ class _AiToolsPanelState extends ConsumerState<AiToolsPanel> with SingleTickerPr
                 Card(
                   margin: const EdgeInsets.only(bottom: 12),
                   elevation: 0,
-                  color: theme.colorScheme.surfaceVariant.withOpacity(0.3),
+                  color: theme.colorScheme.surfaceContainerHighest.withOpacity(0.3),
                   child: ListTile(
                     title: Text(
                       chapter['title'] ?? 'Unnamed Chapter',
@@ -370,22 +368,7 @@ class _AiToolsPanelState extends ConsumerState<AiToolsPanel> with SingleTickerPr
                       final pageStart = chapter['pageStart'];
                       if (pageStart != null) {
                         // Handle navigation based on content type
-                        if (widget.bookState.status == ReadingStatus.displayingPdf) {
-                          // PDF navigation 
-                          _log.info('Navigate to PDF page $pageStart');
-                          
-                          // This will trigger navigation in the reading screen
-                          ref.read(readingNotifierProvider(widget.bookId).notifier)
-                             .updatePdfPosition(pageStart - 1, widget.bookState.totalChapters);
-                          
-                          // Show success message
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(
-                              content: Text('Navigating to page $pageStart'),
-                              duration: const Duration(seconds: 2),
-                            ),
-                          );
-                        } else {
+                        if (widget.bookState.status == ReadingStatus.displayingText) {
                           // Text/EPUB navigation
                           ref.read(readingNotifierProvider(widget.bookId).notifier)
                             .navigateToChapter(pageStart - 1);
@@ -395,7 +378,7 @@ class _AiToolsPanelState extends ConsumerState<AiToolsPanel> with SingleTickerPr
                     },
                   ),
                 )
-              ).toList(),
+              ),
               
               // Reset button
               const SizedBox(height: 16),
@@ -428,7 +411,7 @@ class _AiToolsPanelState extends ConsumerState<AiToolsPanel> with SingleTickerPr
         
         Card(
           elevation: 0,
-          color: theme.colorScheme.surfaceVariant.withOpacity(0.3),
+          color: theme.colorScheme.surfaceContainerHighest.withOpacity(0.3),
           child: Padding(
             padding: const EdgeInsets.all(16.0),
             child: Column(
@@ -829,93 +812,7 @@ class _AiToolsPanelState extends ConsumerState<AiToolsPanel> with SingleTickerPr
             ),
           )
         else
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'Difficult Words & Definitions',
-                style: theme.textTheme.titleMedium?.copyWith(
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-              const SizedBox(height: 16),
-              
-              // Display vocabulary
-              ...widget.bookState.difficultWords!.map((word) => 
-                Card(
-                  margin: const EdgeInsets.only(bottom: 12),
-                  elevation: 0,
-                  color: theme.colorScheme.surfaceVariant.withOpacity(0.3),
-                  child: Padding(
-                    padding: const EdgeInsets.all(16.0),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Expanded(
-                              child: Text(
-                                word['term'] ?? '',
-                                style: const TextStyle(
-                                  fontWeight: FontWeight.bold,
-                                  fontSize: 16,
-                                ),
-                              ),
-                            ),
-                            if (word['partOfSpeech'] != null && word['partOfSpeech'].isNotEmpty)
-                              Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                                decoration: BoxDecoration(
-                                  color: theme.colorScheme.primary.withOpacity(0.1),
-                                  borderRadius: BorderRadius.circular(4),
-                                ),
-                                child: Text(
-                                  word['partOfSpeech'],
-                                  style: TextStyle(
-                                    fontSize: 12,
-                                    color: theme.colorScheme.primary,
-                                  ),
-                                ),
-                              ),
-                          ],
-                        ),
-                        const SizedBox(height: 8),
-                        Text(
-                          word['definition'] ?? '',
-                          style: theme.textTheme.bodyMedium,
-                        ),
-                        if (word['example'] != null && word['example'].isNotEmpty) ...[
-                          const SizedBox(height: 8),
-                          Text(
-                            'Example: "${word['example']}"',
-                            style: theme.textTheme.bodySmall?.copyWith(
-                              fontStyle: FontStyle.italic,
-                              color: theme.colorScheme.onSurfaceVariant,
-                            ),
-                          ),
-                        ],
-                      ],
-                    ),
-                  ),
-                ),
-              ).toList(),
-              
-              // Reset button
-              const SizedBox(height: 16),
-              OutlinedButton.icon(
-                onPressed: () {
-                  ref.read(readingNotifierProvider(widget.bookId).notifier)
-                     .clearAiFeature('vocabulary');
-                },
-                icon: const Icon(Icons.restart_alt),
-                label: const Text('Clear & Regenerate'),
-                style: OutlinedButton.styleFrom(
-                  minimumSize: const Size.fromHeight(40),
-                ),
-              ),
-            ],
-          ),
+          _buildDifficultWordsList(context, widget.bookState),
       ],
     );
   }
@@ -967,7 +864,7 @@ class _AiToolsPanelState extends ConsumerState<AiToolsPanel> with SingleTickerPr
               Card(
                 margin: const EdgeInsets.only(bottom: 16),
                 elevation: 0,
-                color: theme.colorScheme.surfaceVariant.withOpacity(0.3),
+                color: theme.colorScheme.surfaceContainerHighest.withOpacity(0.3),
                 child: Padding(
                   padding: const EdgeInsets.all(16.0),
                   child: Column(
@@ -1033,7 +930,7 @@ class _AiToolsPanelState extends ConsumerState<AiToolsPanel> with SingleTickerPr
                             ],
                           ),
                         ))
-                    .toList(),
+                    ,
                 const SizedBox(height: 16),
               ],
               
@@ -1104,7 +1001,7 @@ class _AiToolsPanelState extends ConsumerState<AiToolsPanel> with SingleTickerPr
                 const SizedBox(height: 8),
                 Card(
                   elevation: 0,
-                  color: theme.colorScheme.surfaceVariant.withOpacity(0.3),
+                  color: theme.colorScheme.surfaceContainerHighest.withOpacity(0.3),
                   margin: const EdgeInsets.only(bottom: 16),
                   child: Padding(
                     padding: const EdgeInsets.all(16),
@@ -1131,7 +1028,7 @@ class _AiToolsPanelState extends ConsumerState<AiToolsPanel> with SingleTickerPr
                     Expanded(
                       child: Card(
                         elevation: 0,
-                        color: theme.colorScheme.surfaceVariant.withOpacity(0.3),
+                        color: theme.colorScheme.surfaceContainerHighest.withOpacity(0.3),
                         margin: const EdgeInsets.only(bottom: 16, right: 8),
                         child: Padding(
                           padding: const EdgeInsets.all(16),
@@ -1160,7 +1057,7 @@ class _AiToolsPanelState extends ConsumerState<AiToolsPanel> with SingleTickerPr
                     Expanded(
                       child: Card(
                         elevation: 0,
-                        color: theme.colorScheme.surfaceVariant.withOpacity(0.3),
+                        color: theme.colorScheme.surfaceContainerHighest.withOpacity(0.3),
                         margin: const EdgeInsets.only(bottom: 16, left: 8),
                         child: Padding(
                           padding: const EdgeInsets.all(16),
@@ -1291,7 +1188,7 @@ class _AiToolsPanelState extends ConsumerState<AiToolsPanel> with SingleTickerPr
                 Card(
                   margin: const EdgeInsets.only(bottom: 16),
                   elevation: 0,
-                  color: theme.colorScheme.surfaceVariant.withOpacity(0.3),
+                  color: theme.colorScheme.surfaceContainerHighest.withOpacity(0.3),
                   child: Padding(
                     padding: const EdgeInsets.all(16.0),
                     child: Column(
@@ -1365,7 +1262,7 @@ class _AiToolsPanelState extends ConsumerState<AiToolsPanel> with SingleTickerPr
                     ),
                   ),
                 ),
-              ).toList(),
+              ),
               
               // Reset button
               OutlinedButton.icon(
@@ -1463,7 +1360,7 @@ class _AiToolsPanelState extends ConsumerState<AiToolsPanel> with SingleTickerPr
             Card(
               margin: const EdgeInsets.only(bottom: 16),
               elevation: 0,
-              color: theme.colorScheme.surfaceVariant.withOpacity(0.3),
+              color: theme.colorScheme.surfaceContainerHighest.withOpacity(0.3),
               child: Padding(
                 padding: const EdgeInsets.all(16.0),
                 child: Column(
@@ -1536,7 +1433,7 @@ class _AiToolsPanelState extends ConsumerState<AiToolsPanel> with SingleTickerPr
                 ),
               ),
             ),
-          ).toList()
+          )
         else if (widget.bookState.lastSearchQuery != null)
           Center(
             child: Padding(
@@ -1596,7 +1493,7 @@ class _AiToolsPanelState extends ConsumerState<AiToolsPanel> with SingleTickerPr
           ElevatedButton.icon(
             onPressed: () {
               ref.read(readingNotifierProvider(widget.bookId).notifier)
-                .suggestBookmarks();
+                .suggestBookMarksFromAi();
             },
             icon: const Icon(Icons.bookmark_add),
             label: const Text('Generate Smart Bookmarks'),
@@ -1620,7 +1517,7 @@ class _AiToolsPanelState extends ConsumerState<AiToolsPanel> with SingleTickerPr
                 Card(
                   margin: const EdgeInsets.only(bottom: 16),
                   elevation: 0,
-                  color: theme.colorScheme.surfaceVariant.withOpacity(0.3),
+                  color: theme.colorScheme.surfaceContainerHighest.withOpacity(0.3),
                   child: Padding(
                     padding: const EdgeInsets.all(16.0),
                     child: Column(
@@ -1682,7 +1579,7 @@ class _AiToolsPanelState extends ConsumerState<AiToolsPanel> with SingleTickerPr
                     ),
                   ),
                 ),
-              ).toList(),
+              ),
               
               // Reset button
               OutlinedButton.icon(
@@ -1766,5 +1663,45 @@ class _AiToolsPanelState extends ConsumerState<AiToolsPanel> with SingleTickerPr
     
     ref.read(readingNotifierProvider(widget.bookId).notifier)
        .translateText(_selectedTextController.text, _targetLanguage);
+  }
+
+  Widget _buildDifficultWordsList(BuildContext context, ReadingState bookState) {
+    if (bookState.difficultWords == null || bookState.difficultWords!.isEmpty) {
+      return const Center(child: Text("No difficult words identified yet."));
+    }
+
+    // Convert the map to a list of widgets
+    List<Widget> wordWidgets = [];
+    bookState.difficultWords!.forEach((term, definition) {
+      // Each term-definition pair becomes a Card
+      wordWidgets.add(
+        Card(
+          elevation: 2,
+          margin: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
+          child: Padding(
+            padding: const EdgeInsets.all(12.0),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  term, // Display the term
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  definition, // Display the definition
+                  style: Theme.of(context).textTheme.bodyMedium,
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    });
+
+    return ListView(
+      padding: const EdgeInsets.all(8.0),
+      children: wordWidgets,
+    );
   }
 } 

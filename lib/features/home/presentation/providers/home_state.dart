@@ -2,7 +2,7 @@ import 'package:equatable/equatable.dart';
 
 // import '../../domain/entities/book_entity.dart'; Remove this
 // import '../../../../core/models/book_model.dart'; // Add this
-import 'package:modudi/models/book_models.dart'; // Use new models
+import 'package:modudi/features/books/data/models/book_models.dart'; // Use new models
 import '../../domain/entities/category_entity.dart';
 import '../../domain/entities/video_entity.dart';
 

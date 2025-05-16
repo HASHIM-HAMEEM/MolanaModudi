@@ -1,18 +1,26 @@
 import 'package:flutter/material.dart'; // Needed for BuildContext
 import 'package:go_router/go_router.dart';
+import '../core/utils/app_logger.dart'; // Import AppLogger
 import '../core/widgets/main_scaffold.dart'; // Import the scaffold
 import '../features/home/presentation/screens/home_screen.dart';
-import '../features/library/presentation/screens/library_screen.dart'; // Use existing LibraryScreen
-import '../features/history/presentation/screens/history_screen.dart'; // Import HistoryScreen
+import '../features/library/presentation/screens/library_screen_redesigned.dart'; // Use redesigned LibraryScreen
+// import '../features/history/presentation/screens/history_screen.dart'; // Import HistoryScreen - Commented out
 import '../features/profile/presentation/screens/profile_screen.dart'; // Import ProfileScreen
 import '../features/reading/presentation/screens/reading_screen.dart'; // Import ReadingScreen
-import '../features/book_detail/presentation/screens/book_detail_screen.dart'; // Use existing BookDetailScreen
+import '../features/books/presentation/screens/book_detail_screen.dart'; // Use existing BookDetailScreen
 import '../features/reading/presentation/screens/reading_tab_screen.dart'; // Import ReadingTabScreen
 import '../features/favorites/presentation/screens/favorites_screen.dart'; // Import FavoritesScreen
 import '../features/videos/presentation/screens/videos_screen.dart'; // Import VideosScreen
 import '../features/videos/presentation/screens/playlist_detail_screen.dart'; // Import PlaylistDetailScreen
+// Import FirebaseBookDetailScreen
 import '../features/biography/presentation/screens/biography_screen.dart'; // Import BiographyScreen
+import '../features/search/presentation/screens/search_screen.dart'; // Import SearchScreen
+import '../features/library/presentation/screens/category_books_screen.dart'; // Import CategoryBooksScreen
 import 'route_names.dart';
+// import 'package:modudi/features/auth/presentation/screens/auth_gate.dart';
+// import 'package:modudi/features/auth/presentation/screens/login_screen.dart';
+// import 'package:modudi/features/auth/presentation/screens/signup_screen.dart';
+// import 'package:modudi/features/onboarding/presentation/screens/onboarding_screen.dart';
 
 /// Application routing configuration using GoRouter.
 class AppRouter {
@@ -25,6 +33,10 @@ class AppRouter {
     initialLocation: RouteNames.home,
     debugLogDiagnostics: true, 
     navigatorKey: _rootNavigatorKey,
+    observers: [
+      // Add navigation observer for logging
+      _NavigationObserver(),
+    ],
 
     routes: <RouteBase>[
       // Application Shell with Bottom Navigation
@@ -55,7 +67,8 @@ class AppRouter {
           // Library Tab
           GoRoute(
             path: RouteNames.library,
-             pageBuilder: (context, state) => const NoTransitionPage(child: LibraryScreen()),
+            name: RouteNames.library, // Add name for named navigation
+            pageBuilder: (context, state) => const NoTransitionPage(child: LibraryScreenRedesigned()),
               routes: <RouteBase>[
                  // Route for book details accessible from Library: /library/book/1
                  GoRoute(
@@ -72,8 +85,9 @@ class AppRouter {
           ),
           // History Tab
           GoRoute(
-            path: RouteNames.history, // History tab
-            pageBuilder: (context, state) => const NoTransitionPage(child: HistoryScreen()),
+            path: 'history', // Path for HistoryScreen
+            // builder: (context, state) => const HistoryScreen(), // Commented out
+            pageBuilder: (context, state) => const NoTransitionPage(child: Text("History Screen Placeholder")), // Placeholder for HistoryScreen
           ),
           // Reading Tab
           GoRoute(
@@ -91,16 +105,6 @@ class AppRouter {
              pageBuilder: (context, state) => const NoTransitionPage(child: ProfileScreen()),
           ),
         ],
-      ),
-      // Add route for Biography Screen
-      GoRoute(
-        name: RouteNames.biography,
-        path: RouteNames.biography,
-        parentNavigatorKey: _rootNavigatorKey, // Show over the shell
-        pageBuilder: (context, state) => const MaterialPage(
-          child: BiographyScreen(),
-          fullscreenDialog: true, // Optionally show as a modal dialog
-        ),
       ),
       // Top-level routes that cover the shell (no bottom nav)
       // Videos Route
@@ -155,6 +159,17 @@ class AppRouter {
           return BookDetailScreen(bookId: bookId);
         },
       ),
+      // Firebase Book Detail Route - REDIRECT to BookDetailScreen
+      GoRoute(
+        name: 'firebaseBook',
+        path: '/firebase-book/:bookId',
+        parentNavigatorKey: _rootNavigatorKey,
+        redirect: (context, state) {
+          final bookId = state.pathParameters['bookId']!;
+          AppLogger.logNavigation('firebase-book', 'bookDetailItem', parameters: {'bookId': bookId});
+          return '/books/$bookId'; // Redirect to the standard book detail route
+        },
+      ),
       // Reading Screen Route
       GoRoute(
         name: RouteNames.readingBook, 
@@ -165,9 +180,93 @@ class AppRouter {
           return ReadingScreen(bookId: bookId);
         },
       ),
+      // Biography Screen Route (Top-Level)
+      GoRoute(
+        name: RouteNames.biography,
+        path: RouteNames.biography,
+        parentNavigatorKey: _rootNavigatorKey,
+        builder: (context, state) => BiographyScreen(),
+      ),
+      // Search Screen Route (Top-Level)
+      GoRoute(
+        name: RouteNames.search,
+        path: RouteNames.search, // Should be "/search"
+        parentNavigatorKey: _rootNavigatorKey,
+        builder: (context, state) {
+          final query = state.uri.queryParameters['q'] ?? '';
+          return SearchScreen(query: query);
+        },
+      ),
+      // Category Books Screen Route (Top-Level)
+      GoRoute(
+        name: RouteNames.categoryBooks,
+        path: RouteNames.categoryBooks, // Should be "/category/:categoryId"
+        parentNavigatorKey: _rootNavigatorKey,
+        builder: (context, state) {
+          final categoryId = state.pathParameters['categoryId'] ?? '';
+          return CategoryBooksScreen(categoryId: categoryId);
+        },
+      ),
+      // GoRoute(
+      //   name: RouteNames.authGate,
+      //   path: RouteNames.authGate,
+      //   parentNavigatorKey: _rootNavigatorKey,
+      //   // pageBuilder: (context, state) => const MaterialPage(child: AuthGate()),
+      //   pageBuilder: (context, state) => const NoTransitionPage(child: Text("AuthGate Placeholder")),
+      // ),
+      // GoRoute(
+      //   name: RouteNames.login,
+      //   path: RouteNames.login,
+      //   parentNavigatorKey: _rootNavigatorKey,
+      //   // pageBuilder: (context, state) => const MaterialPage(child: LoginScreen()),
+      //   pageBuilder: (context, state) => const NoTransitionPage(child: Text("Login Placeholder")),
+      // ),
+      // GoRoute(
+      //   name: RouteNames.signup,
+      //   path: RouteNames.signup,
+      //   parentNavigatorKey: _rootNavigatorKey,
+      //   // pageBuilder: (context, state) => const MaterialPage(child: SignupScreen()),
+      //   pageBuilder: (context, state) => const NoTransitionPage(child: Text("Signup Placeholder")),
+      // ),
+      // GoRoute(
+      //   name: RouteNames.onboarding,
+      //   path: RouteNames.onboarding,
+      //   parentNavigatorKey: _rootNavigatorKey,
+      //   // pageBuilder: (context, state) => const MaterialPage(child: OnboardingScreen()),
+      //   pageBuilder: (context, state) => const NoTransitionPage(child: Text("Onboarding Placeholder")),
+      // ),
     ],
     errorBuilder: (context, state) => Scaffold(
       body: Center(child: Text('Route not found: ${state.error}')),
     ),
   );
+}
+
+// Navigation observer for logging all navigation events
+class _NavigationObserver extends NavigatorObserver {
+  final _log = AppLogger.getLogger('Navigation');
+
+  @override
+  void didPush(Route<dynamic> route, Route<dynamic>? previousRoute) {
+    _log.info('PUSH: ${_getRouteName(previousRoute)} → ${_getRouteName(route)}');
+  }
+
+  @override
+  void didPop(Route<dynamic> route, Route<dynamic>? previousRoute) {
+    _log.info('POP: ${_getRouteName(route)} → ${_getRouteName(previousRoute)}');
+  }
+
+  @override
+  void didReplace({Route<dynamic>? newRoute, Route<dynamic>? oldRoute}) {
+    _log.info('REPLACE: ${_getRouteName(oldRoute)} → ${_getRouteName(newRoute)}');
+  }
+
+  @override
+  void didRemove(Route<dynamic> route, Route<dynamic>? previousRoute) {
+    _log.info('REMOVE: ${_getRouteName(route)}');
+  }
+
+  String _getRouteName(Route<dynamic>? route) {
+    return route?.settings.name ?? 'unknown';
+  }
 }

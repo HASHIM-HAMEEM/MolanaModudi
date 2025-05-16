@@ -1,9 +1,74 @@
 import 'package:flutter/material.dart';
 import '../../domain/entities/video_entity.dart';
 import 'package:cached_network_image/cached_network_image.dart';
-import 'package:intl/intl.dart';
-import 'dart:math' as math;
+import 'package:timeago/timeago.dart' as timeago; // For relative time formatting
+// Keep if still used, or remove if not.
 import 'package:url_launcher/url_launcher.dart';
+
+// Helper function to format video duration from ISO 8601
+String formatVideoDuration(String? isoDuration) {
+  if (isoDuration == null || isoDuration.isEmpty) {
+    return '--:--';
+  }
+  try {
+    final duration = Duration(seconds: _parseIso8601Duration(isoDuration));
+    String twoDigits(int n) => n.toString().padLeft(2, '0');
+    final hours = duration.inHours;
+    final minutes = twoDigits(duration.inMinutes.remainder(60));
+    final seconds = twoDigits(duration.inSeconds.remainder(60));
+    if (hours > 0) {
+      return '$hours:$minutes:$seconds';
+    }
+    return '$minutes:$seconds';
+  } catch (e) {
+    // Log error or handle appropriately
+    return '--:--'; // Fallback for parsing errors
+  }
+}
+
+// Helper function to parse ISO 8601 duration (simplified version)
+int _parseIso8601Duration(String isoDuration) {
+  if (!isoDuration.startsWith('PT')) {
+    throw const FormatException('Invalid ISO 8601 duration format');
+  }
+  final RegExp regExp = RegExp(r'PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?');
+  final match = regExp.firstMatch(isoDuration);
+  if (match == null) {
+    return 0;
+  }
+  final hours = int.tryParse(match.group(1) ?? '0') ?? 0;
+  final minutes = int.tryParse(match.group(2) ?? '0') ?? 0;
+  final seconds = int.tryParse(match.group(3) ?? '0') ?? 0;
+  return (hours * 3600) + (minutes * 60) + seconds;
+}
+
+// Helper function to format view count
+String formatViewCount(String? viewCountStr) {
+  if (viewCountStr == null) return 'N/A views';
+  final count = int.tryParse(viewCountStr);
+  if (count == null) return 'N/A views';
+
+  if (count < 1000) {
+    return '$count views';
+  } else if (count < 1000000) {
+    return '${(count / 1000).toStringAsFixed(1)}K views';
+  } else if (count < 1000000000) {
+    return '${(count / 1000000).toStringAsFixed(1)}M views';
+  } else {
+    return '${(count / 1000000000).toStringAsFixed(1)}B views';
+  }
+}
+
+// Helper function to format published date
+String formatPublishedDate(String? dateStr) {
+  if (dateStr == null) return 'Unknown date';
+  try {
+    final dateTime = DateTime.parse(dateStr);
+    return timeago.format(dateTime);
+  } catch (e) {
+    return 'Unknown date'; // Fallback for parsing errors
+  }
+}
 
 class VideoListItem extends StatelessWidget {
   final VideoEntity video;
@@ -15,110 +80,72 @@ class VideoListItem extends StatelessWidget {
     required this.onTap,
   });
 
-  // Helper method to generate random view count for demo purposes
-  String _getRandomViewCount() {
-    final random = math.Random();
-    final count = random.nextInt(1000000);
-    if (count > 1000000) {
-      return '${(count / 1000000).toStringAsFixed(1)}M views';
-    } else if (count > 1000) {
-      return '${(count / 1000).toStringAsFixed(1)}K views';
-    }
-    return '$count views';
-  }
-
-  // Helper method to generate a random upload date for demo purposes
-  String _getRandomUploadDate() {
-    final random = math.Random();
-    final daysAgo = random.nextInt(365);
-    final date = DateTime.now().subtract(Duration(days: daysAgo));
-    return DateFormat.yMMMd().format(date);
-  }
-
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final viewCount = _getRandomViewCount();
-    final uploadDate = _getRandomUploadDate();
+    final formattedDuration = formatVideoDuration(video.duration);
+    final formattedViewCount = formatViewCount(video.viewCount);
+    final formattedPublishedAt = formatPublishedDate(video.publishedAt);
 
     return InkWell(
       onTap: onTap,
       child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 8.0),
+        padding: const EdgeInsets.symmetric(vertical: 10.0, horizontal: 16.0),
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             // Thumbnail with duration
             Stack(
+              alignment: Alignment.bottomRight,
               children: [
                 ClipRRect(
-                  borderRadius: BorderRadius.circular(8),
+                  borderRadius: BorderRadius.circular(8.0),
                   child: SizedBox(
-                    width: 120,
-                    height: 80,
+                    width: 120, // Standard YouTube thumbnail aspect ratio (16:9)
+                    height: (120 * 9) / 16, // Calculate height for 16:9 aspect ratio
                     child: CachedNetworkImage(
                       imageUrl: video.thumbnailUrl,
                       fit: BoxFit.cover,
                       placeholder: (context, url) => Container(
-                        color: theme.colorScheme.primaryContainer.withOpacity(0.3),
-                        child: const Center(
+                        color: theme.colorScheme.secondaryContainer.withOpacity(0.3),
+                        child: Center(
                           child: Icon(
-                            Icons.play_arrow_rounded,
+                            Icons.play_circle_outline_rounded,
                             size: 30,
-                            color: Colors.white,
+                            color: theme.colorScheme.onSecondaryContainer.withOpacity(0.7),
                           ),
                         ),
                       ),
                       errorWidget: (context, url, error) => Container(
-                        color: theme.colorScheme.primaryContainer,
-                        child: const Center(
+                        color: theme.colorScheme.errorContainer,
+                        child: Center(
                           child: Icon(
-                            Icons.play_circle_outline,
+                            Icons.broken_image_outlined,
                             size: 30,
-                            color: Colors.white,
+                            color: theme.colorScheme.onErrorContainer,
                           ),
                         ),
                       ),
                     ),
                   ),
                 ),
-                // Duration indicator
-                Positioned(
-                  right: 4,
-                  bottom: 4,
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                if (formattedDuration.isNotEmpty)
+                  Container(
+                    margin: const EdgeInsets.all(4.0),
+                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                     decoration: BoxDecoration(
-                      color: Colors.black.withOpacity(0.7),
-                      borderRadius: BorderRadius.circular(4),
+                      color: Colors.black.withOpacity(0.75),
+                      borderRadius: BorderRadius.circular(4.0),
                     ),
                     child: Text(
-                      '${math.Random().nextInt(10) + 1}:${(math.Random().nextInt(50) + 10).toString().padLeft(2, '0')}',
+                      formattedDuration,
                       style: const TextStyle(
                         color: Colors.white,
-                        fontSize: 12,
+                        fontSize: 10,
                         fontWeight: FontWeight.bold,
                       ),
                     ),
                   ),
-                ),
-                // Play button overlay
-                Positioned.fill(
-                  child: Center(
-                    child: Container(
-                      padding: const EdgeInsets.all(8),
-                      decoration: BoxDecoration(
-                        color: Colors.black.withOpacity(0.5),
-                        shape: BoxShape.circle,
-                      ),
-                      child: const Icon(
-                        Icons.play_arrow,
-                        color: Colors.white,
-                        size: 24,
-                      ),
-                    ),
-                  ),
-                ),
               ],
             ),
             const SizedBox(width: 12),
@@ -126,107 +153,151 @@ class VideoListItem extends StatelessWidget {
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisAlignment: MainAxisAlignment.start,
                 children: [
                   Text(
                     video.title,
                     style: theme.textTheme.titleSmall?.copyWith(
-                      fontWeight: FontWeight.w500,
+                      fontWeight: FontWeight.w600,
+                      height: 1.3, // Improve line spacing
                     ),
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
                   ),
                   const SizedBox(height: 4),
-                  Text(
-                    'Let\'s Explore Our Deen',
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      color: Colors.grey[600],
+                  if (video.channelTitle != null && video.channelTitle!.isNotEmpty)
+                    Text(
+                      video.channelTitle!,
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: theme.colorScheme.onSurfaceVariant,
+                        fontSize: 12,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                     ),
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    '$viewCount • $uploadDate',
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      color: Colors.grey[600],
-                      fontSize: 11,
-                    ),
+                  const SizedBox(height: 4),
+                  Row(
+                    children: [
+                      if (formattedViewCount.isNotEmpty)
+                        Text(
+                          formattedViewCount,
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: theme.colorScheme.onSurfaceVariant,
+                            fontSize: 11,
+                          ),
+                        ),
+                      if (formattedViewCount.isNotEmpty && formattedPublishedAt.isNotEmpty)
+                        Text(
+                          ' • ',
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: theme.colorScheme.onSurfaceVariant,
+                            fontSize: 11,
+                          ),
+                        ),
+                      if (formattedPublishedAt.isNotEmpty)
+                        Text(
+                          formattedPublishedAt,
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: theme.colorScheme.onSurfaceVariant,
+                            fontSize: 11,
+                          ),
+                        ),
+                    ],
                   ),
                 ],
               ),
             ),
             // More options icon
-            IconButton(
-              icon: const Icon(Icons.more_vert, size: 18),
-              onPressed: () {
-                // Show options menu
-                showModalBottomSheet(
-                  context: context,
-                  builder: (context) => Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      ListTile(
-                        title: Text(
-                          video.title,
-                          style: const TextStyle(
-                            fontWeight: FontWeight.bold,
-                            fontSize: 14,
+            Material(
+              color: Colors.transparent,
+              child: InkWell(
+                borderRadius: BorderRadius.circular(20), // Larger tap target
+                onTap: () {
+                  // Show options menu
+                  showModalBottomSheet(
+                    context: context,
+                    shape: const RoundedRectangleBorder( // Rounded top corners
+                      borderRadius: BorderRadius.vertical(top: Radius.circular(16.0)),
+                    ),
+                    builder: (context) => SafeArea(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+                            child: Text(
+                              video.title,
+                              style: theme.textTheme.titleSmall?.copyWith(
+                                fontWeight: FontWeight.bold,
+                              ),
+                              maxLines: 2, // Allow title to wrap
+                              overflow: TextOverflow.ellipsis,
+                              textAlign: TextAlign.center,
+                            ),
                           ),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                        enabled: false,
-                      ),
-                      const Divider(),
-                      ListTile(
-                        leading: const Icon(Icons.play_arrow),
-                        title: const Text('Play video'),
-                        onTap: () {
-                          Navigator.pop(context);
-                          onTap();
-                        },
-                      ),
-                      ListTile(
-                        leading: const Icon(Icons.open_in_browser),
-                        title: const Text('Open in YouTube'),
-                        onTap: () async {
-                          Navigator.pop(context);
-                          final url = Uri.parse(video.youtubeUrl);
-                          try {
-                            await launchUrl(
-                              url,
-                              mode: LaunchMode.externalApplication,
-                            );
-                          } catch (e) {
-                            // Optionally show a snackbar or toast message
-                            if (context.mounted) {
+                          const Divider(height: 1),
+                          ListTile(
+                            leading: const Icon(Icons.play_circle_outline_rounded),
+                            title: const Text('Play video'),
+                            onTap: () {
+                              Navigator.pop(context);
+                              onTap();
+                            },
+                          ),
+                          if (video.youtubeUrl.isNotEmpty) // Check if youtubeUrl is available
+                            ListTile(
+                              leading: const Icon(Icons.open_in_new_rounded),
+                              title: const Text('Open in YouTube'),
+                              onTap: () async {
+                                Navigator.pop(context);
+                                final url = Uri.parse(video.youtubeUrl);
+                                try {
+                                  if (await canLaunchUrl(url)) {
+                                    await launchUrl(
+                                      url,
+                                      mode: LaunchMode.externalApplication,
+                                    );
+                                  } else {
+                                    if (context.mounted) {
+                                      ScaffoldMessenger.of(context).showSnackBar(
+                                        const SnackBar(content: Text('Could not launch YouTube')), 
+                                      );
+                                    }
+                                  }
+                                } catch (e) {
+                                  if (context.mounted) {
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      SnackBar(content: Text('Error: Could not open YouTube - $e')),
+                                    );
+                                  }
+                                }
+                              },
+                            ),
+                          ListTile(
+                            leading: const Icon(Icons.share_outlined),
+                            title: const Text('Share'),
+                            onTap: () {
+                              Navigator.pop(context);
+                              // TODO: Implement sharing functionality
                               ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(content: Text('Could not open YouTube')),
+                                const SnackBar(content: Text('Sharing is not implemented yet')),
                               );
-                            }
-                          }
-                        },
+                            },
+                          ),
+                        ],
                       ),
-                      ListTile(
-                        leading: const Icon(Icons.share),
-                        title: const Text('Share'),
-                        onTap: () {
-                          Navigator.pop(context);
-                          // Show a snackbar that sharing is not implemented
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(content: Text('Sharing is not implemented yet')),
-                          );
-                        },
-                      ),
-                    ],
-                  ),
-                );
-              },
-              visualDensity: VisualDensity.compact,
-              padding: EdgeInsets.zero,
-              constraints: const BoxConstraints(),
+                    ),
+                  );
+                },
+                child: const Padding(
+                  padding: EdgeInsets.all(8.0), // Increase padding for touch target
+                  child: Icon(Icons.more_vert, size: 20), 
+                ),
+              ),
             ),
           ],
         ),
       ),
     );
   }
-} 
+}

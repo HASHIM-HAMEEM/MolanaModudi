@@ -107,7 +107,7 @@ class GeminiService {
           // Some 400 errors are worth retrying with backoff
           attempts++;
           if (attempts <= maxRetries) {
-            _log.warning('Retrying Gemini API call (${attempts}/${maxRetries})');
+            _log.warning('Retrying Gemini API call ($attempts/$maxRetries)');
             await Future.delayed(Duration(seconds: 2 * attempts)); // Exponential backoff
             continue;
           }
@@ -137,7 +137,7 @@ class GeminiService {
           attempts++;
           if (attempts <= maxRetries) {
             final backoffSeconds = 2 * attempts;
-            _log.warning('Retrying Gemini API call in $backoffSeconds seconds (${attempts}/${maxRetries})');
+            _log.warning('Retrying Gemini API call in $backoffSeconds seconds ($attempts/$maxRetries)');
             await Future.delayed(Duration(seconds: backoffSeconds)); // Exponential backoff
             continue;
           }
@@ -150,7 +150,7 @@ class GeminiService {
         attempts++;
         if (attempts <= maxRetries) {
           final backoffSeconds = 1 * attempts;
-          _log.warning('Retrying Gemini API call in $backoffSeconds seconds (${attempts}/${maxRetries})');
+          _log.warning('Retrying Gemini API call in $backoffSeconds seconds ($attempts/$maxRetries)');
           await Future.delayed(Duration(seconds: backoffSeconds));
           continue;
         }
@@ -184,7 +184,7 @@ class GeminiService {
       }
       
       final prompt = '''
-${bookTypePrompt}${titlePrompt}Analyze the following text and identify a structured table of contents with chapters and sections.
+$bookTypePrompt${titlePrompt}Analyze the following text and identify a structured table of contents with chapters and sections.
 
 Instructions:
 1. Identify chapter titles, headings, and subheadings
@@ -1022,13 +1022,9 @@ $trimmedText
 
 // Provider for the GeminiService
 final geminiServiceProvider = Provider<GeminiService>((ref) {
-  // You might fetch the API key securely here instead of hardcoding
-  final apiKey = const String.fromEnvironment('GEMINI_API_KEY', defaultValue: 'YOUR_API_KEY_HERE');
-  // Ensure the API key is available
-  if (apiKey == 'YOUR_API_KEY_HERE') {
-    throw Exception('Please provide your Gemini API key via --dart-define=GEMINI_API_KEY=YOUR_API_KEY');
-  }
-
+  // Using the provided API key
+  final apiKey = 'AIzaSyDy1WvNSsjvKNzRn9O1GjwTVgWD72ncXYY';
+  
   final model = GenerativeModel(model: 'gemini-1.5-pro', apiKey: apiKey);
   
   // Pass the model and apiKey to the constructor

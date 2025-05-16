@@ -42,13 +42,13 @@ class BookCard extends StatelessWidget {
                     placeholder: (context, url) => Container(
                       width: cardWidth,
                       height: imageHeight,
-                      color: theme.colorScheme.surfaceVariant,
+                      color: theme.colorScheme.surfaceContainerHighest,
                       child: const Center(child: CircularProgressIndicator()),
                     ),
                     errorWidget: (context, url, error) => Container(
                       width: cardWidth,
                       height: imageHeight,
-                      color: theme.colorScheme.surfaceVariant,
+                      color: theme.colorScheme.surfaceContainerHighest,
                       child: const Icon(Icons.error),
                     ),
                     width: cardWidth,

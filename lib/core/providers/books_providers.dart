@@ -1,14 +1,23 @@
-import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:modudi/models/book_models.dart';
+import 'package:modudi/features/books/data/models/book_models.dart';
 import 'package:modudi/core/repositories/books_repository.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:modudi/features/books/data/cache/book_cache_service.dart';
 import 'package:modudi/features/home/presentation/providers/home_notifier.dart';
 import 'package:modudi/features/home/presentation/providers/home_state.dart';
 
+/// Provider for the BookCacheService
+final bookCacheServiceProvider = Provider<BookCacheService>((ref) {
+  return BookCacheService();
+});
+
 /// Provider for the books repository
 final booksRepositoryProvider = Provider<BooksRepository>((ref) {
-  return BooksRepositoryImpl(firestore: FirebaseFirestore.instance);
+  final cacheService = ref.watch(bookCacheServiceProvider);
+  return BooksRepositoryImpl(
+    cacheService: cacheService,
+    firestore: FirebaseFirestore.instance
+  );
 });
 
 /// Provider for fetching a single book by ID

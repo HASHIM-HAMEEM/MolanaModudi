@@ -2,7 +2,7 @@ import 'dart:convert';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:logging/logging.dart';
-import 'package:modudi/models/book_models.dart';
+import 'package:modudi/features/books/data/models/book_models.dart';
 
 // Provider for the FavoritesNotifier
 final favoritesProvider = StateNotifierProvider<FavoritesNotifier, List<Book>>((ref) {
@@ -27,6 +27,13 @@ class FavoritesNotifier extends StateNotifier<List<Book>> {
       final loadedFavorites = favoritesJson.map((jsonStr) {
         final Map<String, dynamic> jsonMap = jsonDecode(jsonStr);
         final docId = jsonMap['firestoreDocId'] as String? ?? jsonMap['id']?.toString() ?? 'unknown';
+        
+        // Ensure thumbnail_url is properly set for the Book model
+        if (jsonMap['thumbnailUrl'] != null && !jsonMap.containsKey('thumbnail_url')) {
+          jsonMap['thumbnail_url'] = jsonMap['thumbnailUrl'];
+        }
+        
+        _log.info('Loading favorite book: $docId with thumbnail: ${jsonMap['thumbnail_url']}');
         return Book.fromMap(docId, jsonMap);
       }).toList();
       
@@ -42,15 +49,26 @@ class FavoritesNotifier extends StateNotifier<List<Book>> {
     try {
       final prefs = await SharedPreferences.getInstance();
       final favoritesJson = state.map((book) {
-        final bookMap = book.toMap();
-        bookMap['firestoreDocId'] = book.firestoreDocId;
-        return jsonEncode(bookMap);
+        // Create a simplified version of the book for storage
+        final Map<String, dynamic> simplifiedBook = {
+          'firestoreDocId': book.firestoreDocId,
+          'id': book.id,
+          'title': book.title,
+          'author': book.author,
+          'thumbnail_url': book.thumbnailUrl, // Use the correct field name expected by Book.fromMap
+          'description': book.description?.substring(0, 
+                        book.description!.length > 100 ? 100 : book.description!.length),
+          'defaultLanguage': book.defaultLanguage ?? 'N/A', // Add language for display
+          'tags': book.tags ?? [], // Add tags for category display
+        };
+        
+        return jsonEncode(simplifiedBook);
       }).toList();
       
       await prefs.setStringList(_prefsKey, favoritesJson);
       _log.info('Saved ${state.length} favorites to storage');
-    } catch (e) {
-      _log.severe('Error saving favorites: $e');
+    } catch (e, stack) {
+      _log.severe('Error saving favorites: $e', e, stack);
     }
   }
   

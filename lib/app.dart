@@ -1,9 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:go_router/go_router.dart';
-import 'package:modudi/core/providers/settings_provider.dart';
+import 'package:modudi/features/settings/presentation/providers/settings_provider.dart';
 import 'package:modudi/core/themes/app_theme.dart';
-import 'package:modudi/l10n/l10n.dart';
+import 'package:modudi/core/l10n/l10n.dart';
 import 'package:modudi/routes/app_router.dart'; // Import the router
 import 'package:flutter_gen/gen_l10n/app_localizations.dart';
 import 'package:logging/logging.dart';
@@ -16,10 +15,10 @@ class MyApp extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    // Access settings for theme mode
+    // Access settings for theme mode and language
     final settings = ref.watch(settingsProvider);
     
-    _log.info('Building app with theme: ${settings.themeMode}');
+    _log.info('Building app with theme: ${settings.themeMode}, language: ${settings.language}, fontSize: ${settings.fontSize}');
     
     // Create theme with adjusted font size
     final lightTheme = _createTheme(context, AppTheme.lightTheme, settings.fontSize.size);
@@ -126,28 +125,60 @@ class MyApp extends ConsumerWidget {
     // Get the base text theme
     final baseTextTheme = baseTheme.textTheme;
     
-    // Create a new text theme with the adjusted font size
+    // Calculate scaling factor based on the selected font size
+    final scaleFactor = fontSize / 14.0; // 14.0 is our base font size
+    
+    // Create a new text theme with the adjusted font size, using more aggressive scaling
     final adjustedTextTheme = baseTextTheme.copyWith(
-      displayLarge: baseTextTheme.displayLarge?.copyWith(fontSize: fontSize * 2.5),
-      displayMedium: baseTextTheme.displayMedium?.copyWith(fontSize: fontSize * 2.25),
-      displaySmall: baseTextTheme.displaySmall?.copyWith(fontSize: fontSize * 2),
-      headlineLarge: baseTextTheme.headlineLarge?.copyWith(fontSize: fontSize * 1.75),
-      headlineMedium: baseTextTheme.headlineMedium?.copyWith(fontSize: fontSize * 1.5),
-      headlineSmall: baseTextTheme.headlineSmall?.copyWith(fontSize: fontSize * 1.25),
-      titleLarge: baseTextTheme.titleLarge?.copyWith(fontSize: fontSize * 1.2),
-      titleMedium: baseTextTheme.titleMedium?.copyWith(fontSize: fontSize * 1.1),
-      titleSmall: baseTextTheme.titleSmall?.copyWith(fontSize: fontSize),
-      bodyLarge: baseTextTheme.bodyLarge?.copyWith(fontSize: fontSize),
-      bodyMedium: baseTextTheme.bodyMedium?.copyWith(fontSize: fontSize * 0.9),
-      bodySmall: baseTextTheme.bodySmall?.copyWith(fontSize: fontSize * 0.8),
-      labelLarge: baseTextTheme.labelLarge?.copyWith(fontSize: fontSize),
-      labelMedium: baseTextTheme.labelMedium?.copyWith(fontSize: fontSize * 0.9),
-      labelSmall: baseTextTheme.labelSmall?.copyWith(fontSize: fontSize * 0.8),
+      // Scale display styles
+      displayLarge: baseTextTheme.displayLarge?.copyWith(fontSize: 36 * scaleFactor),
+      displayMedium: baseTextTheme.displayMedium?.copyWith(fontSize: 32 * scaleFactor),
+      displaySmall: baseTextTheme.displaySmall?.copyWith(fontSize: 28 * scaleFactor),
+      
+      // Scale headline styles
+      headlineLarge: baseTextTheme.headlineLarge?.copyWith(fontSize: 26 * scaleFactor),
+      headlineMedium: baseTextTheme.headlineMedium?.copyWith(fontSize: 24 * scaleFactor),
+      headlineSmall: baseTextTheme.headlineSmall?.copyWith(fontSize: 22 * scaleFactor),
+      
+      // Scale title styles
+      titleLarge: baseTextTheme.titleLarge?.copyWith(fontSize: 20 * scaleFactor),
+      titleMedium: baseTextTheme.titleMedium?.copyWith(fontSize: 18 * scaleFactor),
+      titleSmall: baseTextTheme.titleSmall?.copyWith(fontSize: 16 * scaleFactor),
+      
+      // Scale body styles
+      bodyLarge: baseTextTheme.bodyLarge?.copyWith(fontSize: 16 * scaleFactor),
+      bodyMedium: baseTextTheme.bodyMedium?.copyWith(fontSize: 14 * scaleFactor),
+      bodySmall: baseTextTheme.bodySmall?.copyWith(fontSize: 12 * scaleFactor),
+      
+      // Scale label styles
+      labelLarge: baseTextTheme.labelLarge?.copyWith(fontSize: 16 * scaleFactor),
+      labelMedium: baseTextTheme.labelMedium?.copyWith(fontSize: 14 * scaleFactor),
+      labelSmall: baseTextTheme.labelSmall?.copyWith(fontSize: 12 * scaleFactor),
     );
     
     // Return a new theme with the adjusted text theme
     return baseTheme.copyWith(
       textTheme: adjustedTextTheme,
+      // Also update other theme elements that contain text styles
+      appBarTheme: baseTheme.appBarTheme.copyWith(
+        titleTextStyle: baseTheme.appBarTheme.titleTextStyle?.copyWith(fontSize: 20 * scaleFactor),
+      ),
+      // Update button theme
+      elevatedButtonTheme: ElevatedButtonThemeData(
+        style: ElevatedButton.styleFrom(
+          textStyle: TextStyle(fontSize: 14 * scaleFactor),
+        ).merge(baseTheme.elevatedButtonTheme.style),
+      ),
+      textButtonTheme: TextButtonThemeData(
+        style: TextButton.styleFrom(
+          textStyle: TextStyle(fontSize: 14 * scaleFactor),
+        ).merge(baseTheme.textButtonTheme.style),
+      ),
+      outlinedButtonTheme: OutlinedButtonThemeData(
+        style: OutlinedButton.styleFrom(
+          textStyle: TextStyle(fontSize: 14 * scaleFactor),
+        ).merge(baseTheme.outlinedButtonTheme.style),
+      ),
     );
   }
 

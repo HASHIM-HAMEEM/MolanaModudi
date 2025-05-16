@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import '../../../../core/providers/settings_provider.dart';
+import 'package:modudi/features/settings/presentation/providers/settings_provider.dart';
 import 'package:logging/logging.dart'; // Import logger
 
 class ReadingSettingsPanel extends ConsumerStatefulWidget {
@@ -134,7 +134,7 @@ class _ReadingSettingsPanelState extends ConsumerState<ReadingSettingsPanel> wit
                     ),
                     
                     // Divider
-                    Divider(height: 1, thickness: 1, color: colors.surfaceVariant),
+                    Divider(height: 1, thickness: 1, color: colors.surfaceContainerHighest),
                     
                     // Tab content
                     Expanded(
@@ -296,7 +296,7 @@ class _ReadingSettingsPanelState extends ConsumerState<ReadingSettingsPanel> wit
       ),
       color: isSelected 
           ? theme.colorScheme.primary
-          : theme.colorScheme.surfaceVariant.withOpacity(0.3),
+          : theme.colorScheme.surfaceContainerHighest.withOpacity(0.3),
       child: InkWell(
         onTap: () {
           _log.info('Theme card tapped: $label');
@@ -365,7 +365,7 @@ class _ReadingSettingsPanelState extends ConsumerState<ReadingSettingsPanel> wit
             1.0,
             2.5,
             15,
-            '${widget.currentLineSpacing.toStringAsFixed(1)}',
+            widget.currentLineSpacing.toStringAsFixed(1),
           ),
           
           const SizedBox(height: 16),
@@ -608,7 +608,7 @@ class _ReadingSettingsPanelState extends ConsumerState<ReadingSettingsPanel> wit
       ),
       color: isSelected 
           ? theme.colorScheme.primary
-          : theme.colorScheme.surfaceVariant.withOpacity(0.3),
+          : theme.colorScheme.surfaceContainerHighest.withOpacity(0.3),
       child: InkWell(
         onTap: () {
           _log.info('Font type selected: $label');
@@ -653,7 +653,7 @@ class _ReadingSettingsPanelState extends ConsumerState<ReadingSettingsPanel> wit
       ),
       color: isSelected 
           ? theme.colorScheme.primary
-          : theme.colorScheme.surfaceVariant.withOpacity(0.3),
+          : theme.colorScheme.surfaceContainerHighest.withOpacity(0.3),
       child: InkWell(
         onTap: () {
           _log.info('Direction toggle selected: $label');
@@ -792,7 +792,7 @@ class _ReadingSettingsPanelState extends ConsumerState<ReadingSettingsPanel> wit
               thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 12),
               overlayShape: const RoundSliderOverlayShape(overlayRadius: 24),
               activeTrackColor: Theme.of(context).colorScheme.primary,
-              inactiveTrackColor: Theme.of(context).colorScheme.surfaceVariant,
+              inactiveTrackColor: Theme.of(context).colorScheme.surfaceContainerHighest,
               thumbColor: Theme.of(context).colorScheme.primary,
               overlayColor: Theme.of(context).colorScheme.primary.withOpacity(0.2),
             ),

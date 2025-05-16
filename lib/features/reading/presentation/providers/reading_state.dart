@@ -1,15 +1,15 @@
 import 'package:equatable/equatable.dart';
-import 'package:epub_view/epub_view.dart';
 import 'package:flutter/foundation.dart';
+import 'package:modudi/features/books/data/models/book_models.dart';
+import 'package:modudi/features/reading/data/models/bookmark_model.dart'; // Import Bookmark model
+import 'package:collection/collection.dart'; // Added for DeepCollectionEquality
 
 enum ReadingStatus { 
   initial, 
   loadingMetadata, // Fetching file list
   downloading, // Downloading selected file
-  loadingContent, // Parsing/loading downloaded file (e.g., EPUB)
-  displayingEpub,
+  loadingContent, // Parsing/loading downloaded file
   displayingText,
-  displayingPdf, // Added status for PDF
   error 
 }
 
@@ -26,9 +26,7 @@ class ReadingState extends Equatable {
   final double downloadProgress; // 0.0 to 1.0
   
   // Content holders (only one should be non-null at a time based on status)
-  final EpubController? epubController;
   final String? textContent;
-  final String? pdfPath; // Add path for PDF file
   final String? bookTitle; // Add book title
   
   // Reading progress tracking
@@ -39,7 +37,7 @@ class ReadingState extends Equatable {
   
   // AI Features
   final List<Map<String, dynamic>>? aiExtractedChapters;
-  final List<Map<String, dynamic>>? difficultWords;
+  final Map<String, String>? difficultWords;
   final Map<String, dynamic>? bookSummary;
   final Map<String, dynamic>? themeAnalysis;
   final List<Map<String, dynamic>>? suggestedBookmarks;
@@ -61,16 +59,30 @@ class ReadingState extends Equatable {
   final bool isSpeaking;
   final Map<String, dynamic>? highlightedTextPosition;
 
+  // Add these fields to the ReadingState class
+  final String? currentChapterTitle;
+  final String? currentHeadingTitle;
+  final String? currentLanguage;
+  final List<dynamic>? headings;
+
+  // Add new state variables for main chapters/segments
+  final List<String> mainChapterKeys; // Stores the unique keys for main chapters (e.g., chapter_id)
+  final int currentMainChapterIndex; // Index for the PageView
+
+  final List<Bookmark> bookmarks; // Added for bookmarks
+
+  final String? bookId; // Ensure this is present
+  final Book? book; // Ensure this is present
+  final bool isTocExtracted; // Ensure this is present
+
   const ReadingState({
     this.status = ReadingStatus.initial,
     this.errorMessage,
     this.downloadProgress = 0.0,
-    this.epubController,
     this.textContent,
-    this.pdfPath,
     this.bookTitle,
-    this.currentChapter = 0,
-    this.totalChapters = 0, // Represents pages for PDF?
+    this.currentChapter = 0, // This will now represent the logical index of the current main chapter
+    this.totalChapters = 0, // This will represent the total count of main logical chapters
     this.textScrollPosition = 0.0,
     this.lastPosition,
     this.aiExtractedChapters,
@@ -87,22 +99,30 @@ class ReadingState extends Equatable {
     this.speechMarkers,
     this.isSpeaking = false,
     this.highlightedTextPosition,
+    this.currentChapterTitle,
+    this.currentHeadingTitle,
+    this.currentLanguage,
+    this.headings,
+    this.mainChapterKeys = const [], // Initialize new field
+    this.currentMainChapterIndex = 0, // Initialize new field - will be synced with currentChapter
+    this.bookmarks = const [], // Initialize bookmarks
+    this.bookId, // Add to constructor
+    this.book, // Add to constructor
+    this.isTocExtracted = false, // Add to constructor
   });
 
   ReadingState copyWith({
     ReadingStatus? status,
     String? errorMessage,
     double? downloadProgress,
-    EpubController? epubController,
     String? textContent,
-    String? pdfPath,
     String? bookTitle,
-    int? currentChapter,
-    int? totalChapters,
+    int? currentChapter, // Logical index of the current main chapter
+    int? totalChapters,  // Total count of main logical chapters
     double? textScrollPosition,
     String? lastPosition,
     List<Map<String, dynamic>>? aiExtractedChapters,
-    List<Map<String, dynamic>>? difficultWords,
+    Map<String, String>? difficultWords,
     Map<String, dynamic>? bookSummary,
     Map<String, dynamic>? themeAnalysis,
     List<Map<String, dynamic>>? suggestedBookmarks,
@@ -116,26 +136,30 @@ class ReadingState extends Equatable {
     bool? isSpeaking,
     Map<String, dynamic>? highlightedTextPosition,
     bool clearError = false,
+    String? currentChapterTitle,
+    String? currentHeadingTitle,
+    String? currentLanguage,
+    List<dynamic>? headings,
+    List<String>? mainChapterKeys,
+    int? currentMainChapterIndex,
+    List<Bookmark>? bookmarks, // Add to copyWith
+    String? bookId, // Add to copyWith
+    Book? book, // Add to copyWith
+    bool? isTocExtracted, // Add to copyWith
   }) {
     // Determine which content fields to keep based on the NEW status
-    EpubController? newEpubController = epubController ?? this.epubController;
     String? newTextContent = textContent ?? this.textContent;
-    String? newPdfPath = pdfPath ?? this.pdfPath;
     
     final targetStatus = status ?? this.status;
     if (status != null) { // Only clear if status is explicitly changing
-      if (targetStatus != ReadingStatus.displayingEpub) newEpubController = null;
       if (targetStatus != ReadingStatus.displayingText) newTextContent = null;
-      if (targetStatus != ReadingStatus.displayingPdf) newPdfPath = null;
     }
 
     return ReadingState(
       status: targetStatus,
       errorMessage: clearError ? null : errorMessage ?? this.errorMessage,
       downloadProgress: downloadProgress ?? this.downloadProgress,
-      epubController: newEpubController,
       textContent: newTextContent,
-      pdfPath: newPdfPath,
       bookTitle: bookTitle ?? this.bookTitle,
       currentChapter: currentChapter ?? this.currentChapter, 
       totalChapters: totalChapters ?? this.totalChapters, 
@@ -157,13 +181,23 @@ class ReadingState extends Equatable {
       speechMarkers: speechMarkers ?? this.speechMarkers,
       isSpeaking: isSpeaking ?? this.isSpeaking,
       highlightedTextPosition: highlightedTextPosition ?? this.highlightedTextPosition,
+      currentChapterTitle: currentChapterTitle ?? this.currentChapterTitle,
+      currentHeadingTitle: currentHeadingTitle ?? this.currentHeadingTitle,
+      currentLanguage: currentLanguage ?? this.currentLanguage,
+      headings: headings ?? this.headings,
+      mainChapterKeys: mainChapterKeys ?? this.mainChapterKeys,
+      currentMainChapterIndex: currentMainChapterIndex ?? this.currentMainChapterIndex,
+      bookmarks: bookmarks ?? this.bookmarks, // Add to copyWith
+      bookId: bookId ?? this.bookId, // Add to copyWith
+      book: book ?? this.book, // Add to copyWith
+      isTocExtracted: isTocExtracted ?? this.isTocExtracted, // Add to copyWith
     );
   }
   
   // Calculate reading progress percentage (adjust interpretation for PDF)
   double get progressPercentage {
     if (totalChapters <= 0) return 0.0;
-    // For EPUB/Text, it's chapter-based. For PDF, treat currentChapter as currentPage.
+    // For EPUB/Text, it's chapter-based. 
     // Note: PDFView provides its own page count/callbacks, might need different state later.
     final currentPage = currentChapter + 1; // Assume currentChapter is 0-based page index for PDF
     return (currentPage / totalChapters).clamp(0.0, 1.0);
@@ -189,9 +223,7 @@ class ReadingState extends Equatable {
     status, 
     errorMessage, 
     downloadProgress, 
-    epubController, 
     textContent,
-    pdfPath, // Added pdfPath to props
     bookTitle,
     currentChapter,
     totalChapters,
@@ -211,6 +243,16 @@ class ReadingState extends Equatable {
     speechMarkers,
     isSpeaking,
     highlightedTextPosition,
+    currentChapterTitle,
+    currentHeadingTitle,
+    currentLanguage,
+    headings,
+    mainChapterKeys,
+    currentMainChapterIndex,
+    bookmarks,
+    bookId,
+    book,
+    isTocExtracted,
   ];
 
   @override
@@ -222,15 +264,13 @@ class ReadingState extends Equatable {
       other.bookTitle == bookTitle &&
       other.errorMessage == errorMessage &&
       other.downloadProgress == downloadProgress &&
-      other.epubController == epubController &&
       other.textContent == textContent &&
-      other.pdfPath == pdfPath &&
       other.currentChapter == currentChapter &&
       other.totalChapters == totalChapters &&
       other.textScrollPosition == textScrollPosition &&
       other.lastPosition == lastPosition &&
       listEquals(other.aiExtractedChapters, aiExtractedChapters) &&
-      listEquals(other.difficultWords, difficultWords) &&
+      mapEquals(other.difficultWords, difficultWords) &&
       mapEquals(other.bookSummary, bookSummary) &&
       mapEquals(other.themeAnalysis, themeAnalysis) &&
       listEquals(other.suggestedBookmarks, suggestedBookmarks) &&
@@ -242,35 +282,70 @@ class ReadingState extends Equatable {
       other.lastSearchQuery == lastSearchQuery &&
       mapEquals(other.speechMarkers, speechMarkers) &&
       other.isSpeaking == isSpeaking &&
-      mapEquals(other.highlightedTextPosition, highlightedTextPosition);
+      mapEquals(other.highlightedTextPosition, highlightedTextPosition) &&
+      other.currentChapterTitle == currentChapterTitle &&
+      other.currentHeadingTitle == currentHeadingTitle &&
+      other.currentLanguage == currentLanguage &&
+      listEquals(other.headings, headings) &&
+      listEquals(other.mainChapterKeys, mainChapterKeys) &&
+      other.currentMainChapterIndex == currentMainChapterIndex &&
+      listEquals(other.bookmarks, bookmarks) &&
+      other.bookId == bookId &&
+      other.book == book &&
+      other.isTocExtracted == isTocExtracted;
   }
 
   @override
-  int get hashCode {
-    return status.hashCode ^
-      bookTitle.hashCode ^
-      errorMessage.hashCode ^
-      downloadProgress.hashCode ^
-      epubController.hashCode ^
-      textContent.hashCode ^
-      pdfPath.hashCode ^
-      currentChapter.hashCode ^
-      totalChapters.hashCode ^
-      textScrollPosition.hashCode ^
-      lastPosition.hashCode ^
-      aiExtractedChapters.hashCode ^
-      difficultWords.hashCode ^
-      bookSummary.hashCode ^
-      themeAnalysis.hashCode ^
-      suggestedBookmarks.hashCode ^
-      recommendedSettings.hashCode ^
-      bookRecommendations.hashCode ^
-      aiFeatureStatus.hashCode ^
-      currentTranslation.hashCode ^
-      searchResults.hashCode ^
-      lastSearchQuery.hashCode ^
-      speechMarkers.hashCode ^
-      isSpeaking.hashCode ^
-      highlightedTextPosition.hashCode;
-  }
+  int get hashCode =>
+    status.hashCode ^
+    errorMessage.hashCode ^
+    downloadProgress.hashCode ^
+    textContent.hashCode ^
+    bookTitle.hashCode ^
+    currentChapter.hashCode ^
+    totalChapters.hashCode ^
+    textScrollPosition.hashCode ^
+    lastPosition.hashCode ^
+    (aiExtractedChapters?.fold<int>(0, (prev, item) {
+      int itemHash = 0;
+ itemHash = item.hashCode ?? 0;       return prev ^ itemHash;
+    }) ?? 0) ^
+    const DeepCollectionEquality().hash(difficultWords) ^
+    bookSummary.hashCode ^
+    themeAnalysis.hashCode ^
+    (suggestedBookmarks?.fold<int>(0, (prev, item) {
+      int itemHash = 0;
+ itemHash = item.hashCode ?? 0;       return prev ^ itemHash;
+    }) ?? 0) ^
+    recommendedSettings.hashCode ^
+    (bookRecommendations?.fold<int>(0, (prev, item) {
+      int itemHash = 0;
+ itemHash = item.hashCode ?? 0;       return prev ^ itemHash;
+    }) ?? 0) ^
+    aiFeatureStatus.hashCode ^
+    currentTranslation.hashCode ^
+    (searchResults?.fold<int>(0, (prev, item) {
+      int itemHash = 0;
+ itemHash = item.hashCode ?? 0;       return prev ^ itemHash;
+    }) ?? 0) ^
+    lastSearchQuery.hashCode ^
+    speechMarkers.hashCode ^
+    isSpeaking.hashCode ^
+    highlightedTextPosition.hashCode ^
+    currentChapterTitle.hashCode ^
+    currentHeadingTitle.hashCode ^
+    currentLanguage.hashCode ^
+    (headings?.fold<int>(0, (prev, item) {
+      int itemHash = 0;
+      if (item != null) { itemHash = item.hashCode ?? 0; }
+      return prev ^ itemHash;
+    }) ?? 0) ^
+    (mainChapterKeys.fold<int>(0, (prev, item) {
+      return prev ^ (item.hashCode ?? 0);
+    })) ^ 
+    currentMainChapterIndex.hashCode ^
+    bookmarks.hashCode ^
+    bookId.hashCode ^
+    book.hashCode ^
+    isTocExtracted.hashCode;
 } 

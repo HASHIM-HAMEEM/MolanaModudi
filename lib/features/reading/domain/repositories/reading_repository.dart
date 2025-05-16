@@ -1,4 +1,5 @@
-import 'package:modudi/models/book_models.dart';
+import 'package:modudi/features/books/data/models/book_models.dart';
+import '../../data/models/bookmark_model.dart';
 
 /// Abstract repository for fetching book files.
 abstract class ReadingRepository {
@@ -74,4 +75,15 @@ abstract class ReadingRepository {
     String? voiceStyle,
     String? language,
   });
+  
+  /// Fetches a specific heading by its ID
+  Future<dynamic> getHeadingById(String headingId);
+
+  // Bookmark methods
+  Future<void> addBookmark(Bookmark bookmark);
+  Future<void> removeBookmark(String bookId, String bookmarkId);
+  Future<List<Bookmark>> getBookmarks(String bookId);
+
+  // Debug method for Firestore structure (if you need to keep it)
+  Future<void> debugFirestoreStructure(String bookId);
 } 

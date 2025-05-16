@@ -1,9 +1,9 @@
-import 'package:flutter/material.dart'; // For Color
 import 'package:logging/logging.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 // import 'package:dio/dio.dart'; // Dio no longer needed directly here
 
 // import '../../../../core/services/api_service.dart'; // Removed ArchiveApiService import
-import 'package:modudi/models/book_models.dart'; // Use new models
+import 'package:modudi/features/books/data/models/book_models.dart'; // Use new models
 import '../../domain/entities/category_entity.dart';
 import '../../domain/entities/video_entity.dart';
 import '../../domain/repositories/home_repository.dart';
@@ -13,12 +13,49 @@ import '../models/category_model.dart';
 // import 'package:modudi/config/book_collections.dart'; // BookCollections might be IA specific
 
 class HomeRepositoryImpl implements HomeRepository {
-  // final ArchiveApiService _apiService; // Removed _apiService field
   final Logger _logger = Logger('HomeRepositoryImpl');
+  final FirebaseFirestore _firestore;
 
-  HomeRepositoryImpl(/*{
-    required ArchiveApiService apiService,
-  }*/) /*: _apiService = apiService*/;
+  HomeRepositoryImpl({
+    FirebaseFirestore? firestore,
+  }) : _firestore = firestore ?? FirebaseFirestore.instance;
+
+  @override
+  Future<Book?> getBookById(String bookId) async {
+    try {
+      _logger.info('Fetching book by ID: $bookId');
+      
+      final bookDoc = await _firestore.collection('books').doc(bookId).get();
+      
+      if (!bookDoc.exists || bookDoc.data() == null) {
+        _logger.warning('Book with ID $bookId not found');
+        return null;
+      }
+      
+      final book = Book.fromMap(bookDoc.id, bookDoc.data()!);
+      
+      // Fetch headings if available
+      final headingsSnapshot = await _firestore
+          .collection('books')
+          .doc(bookId)
+          .collection('headings')
+          .orderBy('sequence')
+          .get();
+      
+      if (headingsSnapshot.docs.isNotEmpty) {
+        final headings = headingsSnapshot.docs
+            .map((doc) => Heading.fromMap(doc.id, doc.data()))
+            .toList();
+            
+        return book.copyWith(headings: headings);
+      }
+      
+      return book;
+    } catch (e) {
+      _logger.severe('Error getting book by ID: $e');
+      return null;
+    }
+  }
 
   @override
   Future<List<Book>> getFeaturedBooks({int perPage = 500}) async {

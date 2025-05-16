@@ -1,38 +1,49 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:logging/logging.dart'; // Import logging
-import 'dart:ui'; // Import for PlatformDispatcher
+import 'package:logging/logging.dart';
+import 'dart:ui';
 import 'package:firebase_core/firebase_core.dart';
-import 'package:flutter/foundation.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
 import 'app.dart';
-// Potentially import SharedPreferences if needed directly
-// import 'package:shared_preferences/shared_preferences.dart';
+import 'core/utils/app_logger.dart';
+import 'features/search/di/search_module.dart';
 
 void main() async { // Make main async
   // Ensure Flutter bindings are initialized
   WidgetsFlutterBinding.ensureInitialized();
   
-  // Initialize SharedPreferences (optional here, provider handles it)
-  // final prefs = await SharedPreferences.getInstance(); 
-
-  // Configure Logging
-  _setupLogging();
+  // Initialize the AppLogger
+  AppLogger.init();
+  final log = AppLogger.getLogger('main');
   
   // Initialize Firebase properly
   try {
-    await Firebase.initializeApp(
-      // No options needed - it will use the GoogleService-Info.plist for iOS 
-      // and google-services.json for Android
-    );
-    Logger('Firebase').info('Firebase initialized successfully');
+    await Firebase.initializeApp();
+    log.info('Firebase initialized successfully');
   } catch (e) {
-    Logger('Firebase').severe('Failed to initialize Firebase', e);
+    log.severe('Failed to initialize Firebase', e);
   }
+  
+  // Initialize SharedPreferences
+  final prefs = await SharedPreferences.getInstance();
+  log.info('SharedPreferences initialized');
+  
+  log.info('Starting application');
+  
+  // Create providers overrides
+  final overrides = [
+    // Override SharedPreferences provider
+    sharedPreferencesProvider.overrideWithValue(prefs),
+  ];
+  
+  // Initialize the app with Riverpod for state management
   
   runApp(
     // Wrap the entire app with ProviderScope for Riverpod state management
-    const ProviderScope(
-      child: MyApp(),
+    ProviderScope(
+      overrides: overrides,
+      child: const MyApp(),
     ),
   );
 }

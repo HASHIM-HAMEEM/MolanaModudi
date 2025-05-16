@@ -1,10 +1,13 @@
 import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
+import '../../../../core/themes/app_color.dart';
 
 class CategoryCard extends StatelessWidget {
   final String name;
   final int count;
   final Color iconBackgroundColor;
-  final IconData icon;
+  final IconData? icon;
+  final String? description;
   final VoidCallback? onTap;
 
   const CategoryCard({
@@ -12,100 +15,108 @@ class CategoryCard extends StatelessWidget {
     required this.name,
     required this.count,
     required this.iconBackgroundColor,
-    this.icon = Icons.book_outlined, // Default icon
+    this.icon,
+    this.description,
     this.onTap,
   });
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final textTheme = theme.textTheme;
+    final isDark = theme.brightness == Brightness.dark;
+    final isSepia = theme.scaffoldBackgroundColor == AppColor.backgroundSepia;
 
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(8.0),
-      child: Container(
-        padding: const EdgeInsets.all(12.0),
-        decoration: BoxDecoration(
-          color: theme.colorScheme.surface, // Use theme surface color
-          borderRadius: BorderRadius.circular(8.0),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withOpacity(0.05),
-              blurRadius: 6,
-              offset: const Offset(0, 1),
-            ),
-          ],
+    // Determine text color based on theme
+    final textColor = isDark 
+        ? AppColor.textPrimaryDark 
+        : isSepia 
+            ? AppColor.textPrimarySepia 
+            : AppColor.textPrimary;
+    
+    // Determine card color based on theme
+    final cardColor = isDark 
+        ? AppColor.surfaceDark 
+        : isSepia 
+            ? AppColor.surfaceSepia 
+            : AppColor.surface;
+    
+    // We're now using iconBackgroundColor for the badge text color instead of secondaryTextColor
+
+    return Card(
+      elevation: 0,
+      color: cardColor,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: BorderSide(
+          color: isDark 
+              ? Colors.grey.shade800 
+              : Colors.grey.shade200,
+          width: 1,
         ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            // Icon with background
-            CircleAvatar(
-              radius: 20,
-              backgroundColor: iconBackgroundColor,
-              child: Icon(
-                icon,
-                size: 18,
-                color: theme.colorScheme.primary, // Use primary color for icon
-              ),
-            ),
-            const SizedBox(width: 12.0),
-            // Category Name and Count
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Text(
-                    name,
-                    style: textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w500),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
+      ),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(12),
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
+          child: Row(
+            children: [
+              // Icon with colored background - circular style
+              Container(
+                width: 48,
+                height: 48,
+                decoration: BoxDecoration(
+                  color: iconBackgroundColor.withOpacity(0.2),
+                  shape: BoxShape.circle,
+                ),
+                child: Center(
+                  child: Icon(
+                    icon ?? Icons.book_outlined,
+                    color: iconBackgroundColor,
+                    size: 24,
                   ),
-                  const SizedBox(height: 4.0),
-                  Row(
-                    children: [
-                      // Book count badge
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 6.0, vertical: 2.0),
-                        decoration: BoxDecoration(
-                          color: theme.colorScheme.primary.withOpacity(0.1),
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(
-                              Icons.menu_book,
-                              size: 12,
-                              color: theme.colorScheme.primary,
-                            ),
-                            const SizedBox(width: 2.0),
-                            Text(
-                              count.toString(),
-                              style: TextStyle(
-                                fontSize: 11,
-                                color: theme.colorScheme.primary,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                          ],
+                ),
+              ),
+              const SizedBox(width: 16),
+              // Text content
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    // Category name
+                    Text(
+                      name,
+                      style: GoogleFonts.inter(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
+                        color: textColor,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    const SizedBox(height: 4),
+                    // Book count with badge style
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: iconBackgroundColor.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Text(
+                        '$count books',
+                        style: GoogleFonts.inter(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w500,
+                          color: iconBackgroundColor,
                         ),
                       ),
-                      const SizedBox(width: 4.0),
-                      Text(
-                        'books',
-                        style: textTheme.bodySmall?.copyWith(
-                          color: theme.colorScheme.onSurface.withOpacity(0.7),
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
+                    ),
+                  ],
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );

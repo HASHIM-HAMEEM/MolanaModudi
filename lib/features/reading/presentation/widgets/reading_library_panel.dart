@@ -25,7 +25,7 @@ class ReadingLibraryPanel extends ConsumerWidget {
     return Material(
       elevation: 12,
       color: theme.colorScheme.surface,
-      child: Container(
+      child: SizedBox(
         width: MediaQuery.of(context).size.width * 0.75,
         height: double.infinity,
         child: Column(

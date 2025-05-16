@@ -1,5 +1,6 @@
 /// Contains constant definitions for route paths used in the app.
 class RouteNames {
+  static const String splash = '/';
   static const String home = '/home';
   static const String library = '/library';
   static const String history = '/history'; // Added History route
@@ -8,7 +9,10 @@ class RouteNames {
   static const String profile = '/profile';
   static const String favorites = '/favorites'; // Add favorites route
   static const String biography = '/biography'; // Add biography route name
-  
+  static const String search = '/search'; // New search route
+  static const String settings = '/settings';
+  static const String categoryBooks = '/category/:categoryId'; // Add category books route
+
   // Routes likely displayed *over* the main scaffold
   static const String readingBook = '/read/:bookId'; // Changed path for clarity
   static const String bookDetailItem = '/books/:bookId'; // Changed path for clarity
