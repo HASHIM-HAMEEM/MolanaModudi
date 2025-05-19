@@ -3,11 +3,12 @@ import 'package:go_router/go_router.dart';
 import '../core/utils/app_logger.dart'; // Import AppLogger
 import '../core/widgets/main_scaffold.dart'; // Import the scaffold
 import '../features/home/presentation/screens/home_screen.dart';
+import '../features/books/presentation/screens/book_detail_screen.dart'; // Import for BookDetailScreen
 import '../features/library/presentation/screens/library_screen_redesigned.dart'; // Use redesigned LibraryScreen
 // import '../features/history/presentation/screens/history_screen.dart'; // Import HistoryScreen - Commented out
 import '../features/profile/presentation/screens/profile_screen.dart'; // Import ProfileScreen
 import '../features/reading/presentation/screens/reading_screen.dart'; // Import ReadingScreen
-import '../features/books/presentation/screens/book_detail_screen.dart'; // Use existing BookDetailScreen
+import '../features/books/presentation/screens/book_detail_screen.dart' as book_detail; // Use existing BookDetailScreen
 import '../features/reading/presentation/screens/reading_tab_screen.dart'; // Import ReadingTabScreen
 import '../features/favorites/presentation/screens/favorites_screen.dart'; // Import FavoritesScreen
 import '../features/videos/presentation/screens/videos_screen.dart'; // Import VideosScreen
@@ -145,7 +146,7 @@ class AppRouter {
         builder: (context, state) {
           final bookId = state.pathParameters['bookId']!;
           // Use the refactored BookDetailScreen
-          return BookDetailScreen(bookId: bookId);
+          return book_detail.BookDetailScreen(bookId: bookId);
         },
       ),
       // Keep the /book-detail/:bookId route if explicitly used elsewhere

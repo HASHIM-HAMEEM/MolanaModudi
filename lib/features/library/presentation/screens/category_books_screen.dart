@@ -98,7 +98,7 @@ class _CategoryBooksScreenState extends ConsumerState<CategoryBooksScreen> {
     final String bookId = book.id?.toString() ?? '';
     context.pushNamed(
       RouteNames.bookDetail,
-      pathParameters: {'id': bookId},
+      pathParameters: {'bookId': bookId},
     );
   }
   

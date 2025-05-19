@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:google_fonts/google_fonts.dart';
 
 import '../../../../routes/route_names.dart';
 import '../widgets/book_grid_item.dart';
@@ -105,7 +106,15 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
     
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Library'),
+        centerTitle: true, // Center the title
+        title: Text(
+          'Library',
+          style: GoogleFonts.playfairDisplay(
+            fontWeight: FontWeight.w600,
+            fontSize: 22,
+            color: Theme.of(context).colorScheme.onSurface,
+          ),
+        ),
         actions: [
           IconButton(
             icon: const Icon(Icons.refresh),

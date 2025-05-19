@@ -1,17 +1,27 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart'; // Import for Clipboard
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:cached_network_image/cached_network_image.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:logging/logging.dart';
 import 'package:go_router/go_router.dart';
-import 'package:modudi/routes/route_names.dart';
-import 'package:modudi/features/books/data/models/book_models.dart';
-import 'package:modudi/core/utils/app_logger.dart';
-import 'package:modudi/features/favorites/providers/favorites_provider.dart';
+import 'package:logging/logging.dart';
+import 'package:google_fonts/google_fonts.dart';
+import 'package:share_plus/share_plus.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:modudi/core/widgets/optimized_cached_image.dart';
+import 'package:modudi/features/reading/presentation/providers/download_provider.dart';
 import 'package:modudi/features/reading/data/models/bookmark_model.dart';
 import 'package:modudi/features/reading/data/repositories/reading_repository_impl.dart';
-import 'package:google_fonts/google_fonts.dart';
+import 'package:modudi/core/themes/app_color.dart';
+import 'package:modudi/routes/route_names.dart';
+import 'package:modudi/features/books/data/models/book_models.dart';
+// import 'package:modudi/core/providers/books_providers.dart'; // Removed unused import
+import 'package:modudi/features/favorites/providers/favorites_provider.dart';
+import 'package:modudi/core/themes/font_utils.dart';
+// import 'package:modudi/core/constants/app_assets.dart'; // Removed unused import
+import 'package:modudi/core/utils/app_logger.dart';
+
+// import 'package:modudi/features/reading/domain/entities/models.dart'; // Commented out missing file
+// import 'package:modudi/features/books/presentation/widgets/book_card.dart'; // Commented out missing file
+// import 'package:modudi/features/books/presentation/widgets/book_structure_widgets.dart'; // Commented out missing file
 
 class BookDetailScreen extends ConsumerStatefulWidget {
   final String bookId; // Assume bookId is passed to the screen
@@ -22,80 +32,97 @@ class BookDetailScreen extends ConsumerStatefulWidget {
   ConsumerState<BookDetailScreen> createState() => _BookDetailScreenState();
 }
 
-class _BookDetailScreenState extends ConsumerState<BookDetailScreen> with SingleTickerProviderStateMixin {
+// Delegate for handling the tab bar in the SliverPersistentHeader
+class _SliverAppBarDelegate extends SliverPersistentHeaderDelegate {
+  _SliverAppBarDelegate(this._tabBar);
+
+  final TabBar _tabBar;
+
+  @override
+  double get minExtent => _tabBar.preferredSize.height;
+  
+  @override
+  double get maxExtent => _tabBar.preferredSize.height;
+
+  @override
+  Widget build(BuildContext context, double shrinkOffset, bool overlapsContent) {
+    return Container(
+      color: Theme.of(context).primaryColor, // Match the header color
+      child: _tabBar,
+    );
+  }
+
+  @override
+  bool shouldRebuild(_SliverAppBarDelegate oldDelegate) {
+    return false;
+  }
+}
+
+class _BookDetailScreenState extends ConsumerState<BookDetailScreen> with TickerProviderStateMixin {
   late TabController _tabController;
   final _log = Logger('BookDetailScreen');
-  @override
-  Future<bool> didPop() async {
-    // When back is pressed, check if we can pop normally
-    if (context.canPop()) {
-      return true; // Allow default pop behavior
-    } else {
-      // If no route to pop, navigate to fallback route
-      context.go(_fallbackRoute);
-      return false; // Prevent default pop behavior
-    }
+  
+  // Static book cache to prevent reloading across screen rebuilds/navigation
+  static final Map<String, Book> _bookCache = {};
+  
+  // Helper method to scale font sizes based on settings
+  double _scaleFontSize(double baseSize) {
+    return FontUtils.getScaledFontSize(baseSize, ref);
   }
 
   // Local state variables
   Book? _book;
   bool _isLoading = true;
   String? _errorMessage;
-  final String _fallbackRoute = RouteNames.home; // Use named route constant from route_names.dart
 
+  // Cache for structure future to prevent re-fetching on rebuilds
+  late Future<List<dynamic>> _structureFuture;
+  
   @override
   void initState() {
     super.initState();
     _tabController = TabController(length: 4, vsync: this);
     _loadBookDetails(); // Fetch data on init
+    _structureFuture = _loadBookStructure(widget.bookId); // Cache the future
   }
 
-  // Fetch book details and headings from Firestore
+  // Note: We're using the _bookCache static Map defined above for caching
+  
+  // Fetch book details using the ReadingRepository
   Future<void> _loadBookDetails() async {
     if (!mounted) return;
     setState(() {
       _isLoading = true;
       _errorMessage = null;
     });
-    _log.info('Loading details for book ID: ${widget.bookId}');
+    
+    // Check if we already have this book in our memory cache
+    if (_bookCache.containsKey(widget.bookId)) {
+      _log.info('Using in-memory cached book for ID: ${widget.bookId}');
+      setState(() {
+        _book = _bookCache[widget.bookId];
+        _isLoading = false;
+      });
+      return;
+    }
+    
+    _log.info('Loading details for book ID: ${widget.bookId} using repository');
 
     try {
-      final firestore = FirebaseFirestore.instance;
-      final bookDocRef = firestore.collection('books').doc(widget.bookId);
+      final readingRepo = await ref.read(readingRepositoryProvider.future);
+      final book = await readingRepo.getBookData(widget.bookId);
       
-      // Fetch book and headings concurrently
-      final results = await Future.wait([
-        bookDocRef.get(),
-        bookDocRef.collection('headings').orderBy('sequence').get(),
-      ]);
-
-      final bookDocSnap = results[0] as DocumentSnapshot;
-      final headingsSnapshot = results[1] as QuerySnapshot;
-
-      if (!bookDocSnap.exists) {
-        throw Exception('Book not found');
-      }
-
-      final bookData = Book.fromMap(
-        bookDocSnap.id,
-        bookDocSnap.data() as Map<String, dynamic>,
-      );
-
-      final headingsList = headingsSnapshot.docs.map((doc) {
-        return Heading.fromMap(doc.id, doc.data() as Map<String, dynamic>);
-      }).toList();
-
-      _log.info('Loaded book: ${bookData.title} with ${headingsList.length} headings.');
+      // Store in our memory cache for future accesses
+      _bookCache[widget.bookId] = book;
+      
+      _log.info('Loaded book: ${book.title} with ${book.volumes?.length ?? 0} volumes');
 
       if (mounted) {
         setState(() {
-          _book = bookData;
+          _book = book;
           _isLoading = false;
         });
-        // Optional: Trigger AI insights fetch here if needed
-        // _loadAiInsights(); 
       }
-
     } catch (e, stackTrace) {
       _log.severe('Error loading book details: $e', e, stackTrace);
       if (mounted) {
@@ -107,22 +134,7 @@ class _BookDetailScreenState extends ConsumerState<BookDetailScreen> with Single
     }
   }
 
-  // Placeholder for fetching AI insights
-  // Future<void> _loadAiInsights() async {
-  //   if (_book == null || !mounted) return;
-  //   setState(() { _isAiLoading = true; });
-  //   try {
-  //     // Replace with your actual AI fetching logic using a provider or service
-  //     // final insights = await ref.read(aiInsightsProvider(_book!.id).future);
-  //     await Future.delayed(Duration(seconds: 1)); // Simulate network call
-  //     final insights = { 'summary': 'This is an AI generated summary...', 'themes': ['Faith', 'Community'] };
-  //     if (mounted) setState(() { _aiInsights = insights; });
-  //   } catch (e) {
-  //     _log.warning('Failed to load AI insights: $e');
-  //   } finally {
-  //      if (mounted) setState(() { _isAiLoading = false; });
-  //   }
-  // }
+  // AI Insights functionality will be implemented in future updates
 
   @override
   void dispose() {
@@ -132,145 +144,293 @@ class _BookDetailScreenState extends ConsumerState<BookDetailScreen> with Single
 
   @override
   Widget build(BuildContext context) {
+    // Get theme colors for UI elements
     final theme = Theme.of(context);
-    // Watch favorites provider (keep as is for now, adapt if needed)
-    final favorites = ref.watch(favoritesProvider);
-    final isFavorite = favorites.any((favBook) => favBook.firestoreDocId == widget.bookId);
+    final isDark = theme.brightness == Brightness.dark;
+    final primaryColor = theme.colorScheme.primary;
+    final backgroundColor = theme.scaffoldBackgroundColor;
     
-    AppLogger.logUserAction('BookDetail', 'check_favorite_status', 
-      details: {'bookId': widget.bookId, 'isFavorite': isFavorite});
-
-    // Handle loading and error states based on local state
+    // Handle loading state
     if (_isLoading) {
       return Scaffold(
+        backgroundColor: backgroundColor,
         appBar: AppBar(
-          backgroundColor: Theme.of(context).colorScheme.primary,
-          title: const Text('Loading...'),
-          foregroundColor: Colors.white,
-          leading: BackButton(
-            color: Colors.white,
-            onPressed: () {
-              _log.info('Navigating back from book detail loading state');
-              try {
-                if (context.canPop()) {
-                  context.pop();
-                } else {
-                  context.go(RouteNames.home);
-                }
-              } catch (e) {
-                _log.warning('Error during back navigation: $e');
-                // Fallback to home if navigation fails
-                context.go(RouteNames.home);
-              }
-            },
+          backgroundColor: primaryColor,
+          elevation: 0,
+          leading: BackButton(color: isDark ? Colors.white : Colors.black54),
+          title: Text('Loading...', style: TextStyle(color: isDark ? Colors.white : Colors.black87)),
+        ),
+        body: const Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              CircularProgressIndicator(),
+              SizedBox(height: 24),
+              Text('Loading book details...'),
+            ],
           ),
         ),
-        body: Center(
-          child: CircularProgressIndicator(
-            color: Theme.of(context).colorScheme.primary,
-          )
-        ),
-        backgroundColor: Theme.of(context).colorScheme.background,
       );
-    } else if (_errorMessage != null || _book == null) {
+    } 
+    // Handle error state
+    else if (_errorMessage != null || _book == null) {
       return Scaffold(
+        backgroundColor: backgroundColor,
         appBar: AppBar(
-          backgroundColor: Theme.of(context).colorScheme.primary,
-          title: const Text('Error'),
-          foregroundColor: Colors.white,
-          leading: BackButton(
-            color: Colors.white,
-            onPressed: () {
-              _log.info('Navigating back from book detail error state');
-              try {
-                if (context.canPop()) {
-                  context.pop();
-                } else {
-                  context.go(RouteNames.home);
-                }
-              } catch (e) {
-                _log.warning('Error during back navigation: $e');
-                // Fallback to home if navigation fails
-                context.go(RouteNames.home);
-              }
-            },
-          ),
+          backgroundColor: primaryColor,
+          elevation: 0,
+          leading: BackButton(color: isDark ? Colors.white : Colors.black54),
+          title: Text('Error', style: TextStyle(color: isDark ? Colors.white : Colors.black87)),
         ),
         body: Center(
-          child: Padding(
-            padding: const EdgeInsets.all(16.0),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(Icons.error_outline, size: 48, color: Theme.of(context).colorScheme.error),
-                const SizedBox(height: 16),
-                const Text(
-                  'Error loading book details',
-                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const Icon(Icons.error_outline, size: 64, color: Colors.red),
+              const SizedBox(height: 24),
+              Text(
+                'Failed to load book details',
+                style: theme.textTheme.titleLarge,
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 16),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 32),
+                child: Text(
+                  _errorMessage ?? 'Unknown error occurred',
+                  style: theme.textTheme.bodyMedium,
                   textAlign: TextAlign.center,
                 ),
-                const SizedBox(height: 8),
-                Text(
-                  _errorMessage ?? 'Book data could not be loaded.',
-                  textAlign: TextAlign.center,
-                ),
-                const SizedBox(height: 24),
-                ElevatedButton.icon(
-                  // Use the local reload method
-                  onPressed: _loadBookDetails,
-                  icon: const Icon(Icons.refresh),
-                  label: const Text('Retry'),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Theme.of(context).colorScheme.primary,
-                    foregroundColor: Colors.white,
-                  ),
-                ),
-              ],
-            ),
-          )
+              ),
+              const SizedBox(height: 32),
+              ElevatedButton(
+                onPressed: _loadBookDetails,
+                child: const Text('Try Again'),
+              ),
+              ElevatedButton(
+                onPressed: () {
+                  final textToShare = 'Check out "${_book!.title}" on Modudi';
+                  Share.share(textToShare, subject: 'Book recommendation from Modudi');
+                },
+                child: const Text('Share Book'),
+              ),
+            ],
+          ),
         ),
-        backgroundColor: Theme.of(context).colorScheme.background,
       );
-    } else {
-      // Success state - build the UI with real data from _book and _headings
+    } 
+    // Success state - build the UI with real data
+    else {
       final book = _book!;
 
       return Scaffold(
-        // Brown app bar with back and share buttons
+        backgroundColor: backgroundColor,
         appBar: AppBar(
-          backgroundColor: Theme.of(context).colorScheme.primary,
-          foregroundColor: Colors.white,
-          title: Text(book.title ?? 'Book Detail', overflow: TextOverflow.ellipsis),
-                leading: IconButton(
-            icon: Container(
-              padding: const EdgeInsets.all(8),
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: Colors.white.withOpacity(0.2),
+          backgroundColor: primaryColor,
+          elevation: 0,
+          systemOverlayStyle: isDark 
+            ? SystemUiOverlayStyle.light.copyWith(
+                statusBarColor: Colors.transparent,
+              )
+            : SystemUiOverlayStyle.dark.copyWith(
+                statusBarColor: Colors.transparent,
               ),
-              child: Icon(
-                Icons.arrow_back,
-                color: Colors.white,
-                size: 20,
-              ),
+          title: Text(
+            book.title ?? 'Book Detail', 
+            style: GoogleFonts.playfairDisplay(
+              fontWeight: FontWeight.w600,
+              fontSize: _scaleFontSize(22),
+              color: Colors.white,
             ),
-                  onPressed: () {
+            overflow: TextOverflow.ellipsis,
+          ),
+          leading: BackButton(
+            color: Colors.white,
+            onPressed: () {
               _log.info('Navigating back from book detail');
               try {
                 if (context.canPop()) {
                   context.pop();
-                    } else {
+                } else {
                   context.go(RouteNames.home);
                 }
               } catch (e) {
                 _log.warning('Error during back navigation: $e');
                 // Fallback to home if navigation fails
-                      context.go(RouteNames.home);
-                    }
-                  },
+                context.go(RouteNames.home);
+              }
+            },
+          ),
+          actions: [
+            // Offline availability indicator/download button with progress
+            Consumer(builder: (context, ref, child) {
+              final downloadProgressAsyncValue = ref.watch(downloadProgressStreamProvider);
+              final isOfflineAsyncValue = ref.watch(isBookAvailableOfflineProvider(widget.bookId));
+              
+              return downloadProgressAsyncValue.when(
+                data: (progressMap) {
+                  // Check if this book has an active download
+                  final bookProgress = progressMap[widget.bookId];
+                  
+                  if (bookProgress != null && bookProgress < 100) {
+                    // Show circular progress indicator if downloading
+                    return Container(
+                      margin: const EdgeInsets.only(right: 8),
+                      width: 40,
+                      height: 40,
+                      child: Stack(
+                        alignment: Alignment.center,
+                        children: [
+                          CircularProgressIndicator(
+                            value: bookProgress / 100,
+                            strokeWidth: 2,
+                            color: Colors.white,
+                            backgroundColor: Colors.white.withOpacity(0.3),
+                          ),
+                          Text(
+                            "${bookProgress.toInt()}%",
+                            style: TextStyle(fontSize: 9, color: Colors.white, fontWeight: FontWeight.bold),
+                          ),
+                        ],
+                      ),
+                    );
+                  }
+                  
+                  // Check offline availability if not currently downloading
+                  return isOfflineAsyncValue.when(
+                    data: (isAvailableOffline) {
+                      return IconButton(
+                        tooltip: isAvailableOffline ? 'Available offline' : 'Download for offline',
+                        icon: Container(
+                          padding: const EdgeInsets.all(8),
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            color: Colors.white.withOpacity(0.2),
+                          ),
+                          child: Icon(
+                            isAvailableOffline ? Icons.offline_pin : Icons.download,
+                            color: Colors.white,
+                            size: 20,
+                          ),
+                        ),
+                        onPressed: () async {
+                          if (isAvailableOffline) {
+                            // Already downloaded, show toast
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text('This book is already available offline'),
+                                backgroundColor: Colors.green,
+                                behavior: SnackBarBehavior.floating,
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                              ),
+                            );
+                          } else {
+                            // Start download
+                            HapticFeedback.mediumImpact();
+                            final logger = AppLogger.getLogger('BookDetailScreen');
+                            logger.info('Starting download of book: ${widget.bookId}');
+                            
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text('Downloading book for offline reading...'),
+                                backgroundColor: primaryColor,
+                                duration: Duration(seconds: 2),
+                                behavior: SnackBarBehavior.floating,
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                              ),
+                            );
+                            
+                            // Start the download using AsyncValue pattern
+                            final result = await ref.read(readingRepositoryProvider).when(
+                              data: (repository) async {
+                                return await repository.downloadBookForOfflineReading(widget.bookId);
+                              },
+                              loading: () => Future.value(false),
+                              error: (error, stack) {
+                                logger.severe('Error accessing repository for download', error, stack);
+                                return Future.value(false);
+                              },
+                            );
+                            
+                            if (mounted && result == false) {
+                              // Only show error message as success will be evident from the UI change
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  content: Text('Failed to download book'),
+                                  backgroundColor: AppColor.accent, // Corrected class name
+                                  behavior: SnackBarBehavior.floating,
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                                ),
+                              );
+                            }
+                          }
+                        },
+                      );
+                    },
+                    loading: () => IconButton(
+                      icon: Container(
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: Colors.white.withOpacity(0.2),
+                        ),
+                        child: SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(
+                            color: Colors.white,
+                            strokeWidth: 2,
+                          ),
+                        ),
+                      ),
+                      onPressed: null,
+                    ),
+                    error: (_, __) => IconButton(
+                      icon: Container(
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: Colors.white.withOpacity(0.2),
+                        ),
+                        child: Icon(Icons.error_outline, color: Colors.white, size: 20),
+                      ),
+                      onPressed: null,
+                    ),
+                  );
+                },
+                loading: () => IconButton(
+                  icon: Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: Colors.white.withOpacity(0.2),
+                    ),
+                    child: SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(
+                        color: Colors.white,
+                        strokeWidth: 2,
+                      ),
+                    ),
+                  ),
+                  onPressed: null,
                 ),
-                actions: [
-                  IconButton(
+                error: (_, __) => IconButton(
+                  icon: Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: Colors.white.withOpacity(0.2),
+                    ),
+                    child: Icon(Icons.error_outline, color: Colors.white, size: 20),
+                  ),
+                  onPressed: null,
+                ),
+              );
+            }),
+            // Share button
+            IconButton(
               icon: Container(
                 padding: const EdgeInsets.all(8),
                 decoration: BoxDecoration(
@@ -285,6 +445,9 @@ class _BookDetailScreenState extends ConsumerState<BookDetailScreen> with Single
               ),
               onPressed: () async {
                 try {
+                  // Add haptic feedback like in profile screen
+                  HapticFeedback.mediumImpact();
+                  
                   // Get book details for sharing
                   final book = _book;
                   if (book == null) return;
@@ -294,18 +457,35 @@ class _BookDetailScreenState extends ConsumerState<BookDetailScreen> with Single
 
 ${book.description != null ? '${book.description?.substring(0, book.description!.length > 100 ? 100 : book.description!.length)}...' : 'A great book to explore!'}
 
+${book.additionalFields['rating'] != null ? '${(book.additionalFields['rating'] as num?)?.toStringAsFixed(1) ?? '4.5'} (${book.additionalFields['rating_count'] ?? '276'})' : ''}
+
 Download the app to read more.''';
                   
-                  // Use platform channel to share text
-                  await Clipboard.setData(ClipboardData(text: shareText));
-                  
-                  // Show snackbar for confirmation
-                  if (mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(content: Text('Book details copied to clipboard for sharing!'),
-                      backgroundColor: Theme.of(context).colorScheme.primary,
-                      behavior: SnackBarBehavior.floating,
-                    ));
+                  // Use native share sheet with the proper API for our version
+                  try {
+                    // Use the Share API that matches our import
+                    await Share.share(
+                      shareText,
+                      subject: 'Check out this book: ${book.title}'
+                    );
+                    
+                    _log.info('Shared book via native share sheet: ${book.title}');
+                  } catch (e) {
+                    // Fallback to clipboard if native sharing fails
+                    _log.warning('Native sharing failed, using clipboard fallback: $e');
+                    await Clipboard.setData(ClipboardData(text: shareText));
+                    
+                    // Show snackbar for clipboard fallback
+                    if (mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text('Book details copied to clipboard for sharing!'),
+                          backgroundColor: primaryColor,
+                          behavior: SnackBarBehavior.floating,
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                        ),
+                      );
+                    }
                   }
                   
                   _log.info('Shared book: ${book.title}');
@@ -313,252 +493,116 @@ Download the app to read more.''';
                   _log.warning('Error sharing book: $e');
                   if (mounted) {
                     ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Could not share this book'))
+                      SnackBar(
+                        content: const Text('Could not share this book'),
+                        backgroundColor: AppColor.accent, // Corrected class name
+                        behavior: SnackBarBehavior.floating,
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                      ),
                     );
                   }
                 }
               },
             ),
+            // Favorite button
+            Consumer(builder: (context, ref, child) {
+              return _buildFavoriteButton();
+            }),
           ],
         ),
-        body: Column(
-          children: [
-            // Book header section with book image and title - now more responsive
-            Container(
-              padding: EdgeInsets.symmetric(
-                horizontal: MediaQuery.of(context).size.width * 0.05, 
-                vertical: 20
-              ),
-              decoration: BoxDecoration(
-                color: Theme.of(context).colorScheme.primary,
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withOpacity(0.1),
-                    offset: const Offset(0, 3),
-                    blurRadius: 6,
-                  )
-                ],
-              ),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  // Book cover image with responsive width
-                  Hero(
-                    tag: 'book-${widget.bookId}',
-                    child: Container(
-                      width: MediaQuery.of(context).size.width * 0.28, 
-                      // Height is proportional, using aspect ratio
-                      height: MediaQuery.of(context).size.width * 0.28 * 1.5, 
-                      decoration: BoxDecoration(
-                        borderRadius: BorderRadius.circular(12),
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.black.withOpacity(0.25),
-                            blurRadius: 12,
-                            offset: const Offset(0, 5),
-                          ),
-                        ],
-                      ),
-                      child: ClipRRect(
-                        borderRadius: BorderRadius.circular(12),
-                        child: CachedNetworkImage(
-                          imageUrl: book.thumbnailUrl ?? '',
-                          fit: BoxFit.cover,
-                          errorWidget: (_, __, ___) => Container(
-                            color: Colors.grey.shade300,
-                            child: const Icon(Icons.book, color: Colors.grey, size: 50),
-                          ),
-                          placeholder: (_, __) => Container(
-                            color: Colors.grey.shade200,
-                            child: const Center(child: CircularProgressIndicator(color: Colors.white)),
-                          ),
-                        ),
-                      ),
+        body: NestedScrollView(
+          headerSliverBuilder: (BuildContext context, bool innerBoxIsScrolled) {
+            return [
+              // Collapsible Header with Book Details
+              SliverAppBar(
+                expandedHeight: MediaQuery.of(context).size.height * 0.22,
+                floating: false,
+                pinned: false, // Header fully disappears when scrolled
+                snap: false,
+                backgroundColor: primaryColor,
+                flexibleSpace: FlexibleSpaceBar(
+                  background: Container(
+                    padding: EdgeInsets.symmetric(
+                      horizontal: MediaQuery.of(context).size.width * 0.05,
+                      vertical: 16
                     ),
-                  ),
-                  const SizedBox(width: 20),
-                  const SizedBox(width: 20),
-                  // Book details - enhanced with better typography
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      mainAxisAlignment: MainAxisAlignment.center, // Align text vertically
-                      children: [
-                        Text(
-                          book.title ?? 'Untitled Book',
-                          style: GoogleFonts.playfairDisplay(
-                            color: Colors.white,
-                            fontSize: MediaQuery.of(context).size.width * 0.055,
-                            fontWeight: FontWeight.bold,
-                            height: 1.3,
-                            letterSpacing: -0.5,
-                          ),
-                          maxLines: 3,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                        const SizedBox(height: 10),
-                        if (book.author != null)
-                          Text(
-                            'by ${book.author}',
-                            style: GoogleFonts.inter(
-                              color: Colors.white.withOpacity(0.9), 
-                              fontSize: 15,
-                              height: 1.5,
-                              fontWeight: FontWeight.w400,
-                            ),
-                          ),
-                        const SizedBox(height: 16),
-                        if (book.tags != null && book.tags!.isNotEmpty) 
-                          Wrap(
-                            spacing: 6,
-                            runSpacing: 8,
-                            children: book.tags!.map((tag) => Container(
-                              margin: const EdgeInsets.only(right: 2),
-                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                              decoration: BoxDecoration(
-                                color: Colors.white.withOpacity(0.2),
-                                borderRadius: BorderRadius.circular(16),
-                                border: Border.all(
-                                  color: Colors.white30,
-                                  width: 1,
-                                ),
-                              ),
-                              child: Text(
-                                tag,
-                                style: GoogleFonts.inter(
-                                  color: Colors.white,
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.w500,
-                                ),
-                              ),
-                            )).toList(),
-                          ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            
-            // Tab bar with improved design - more modern and responsive
-            Material(
-              color: Theme.of(context).colorScheme.primary,
-              child: Container(
-                decoration: BoxDecoration(
-                  border: Border(
-                    bottom: BorderSide(
-                      color: Colors.white.withOpacity(0.3),
-                      width: 1,
-                    ),
+                    child: _buildMinimalHeaderContent(context, book),
                   ),
                 ),
-                child: TabBar(
-                  controller: _tabController,
-                  labelColor: Colors.white,
-                  unselectedLabelColor: Colors.white.withOpacity(0.6),
-                  indicatorColor: Colors.white,
-                  indicatorWeight: 3,
-                  indicatorSize: TabBarIndicatorSize.label,
-                  padding: const EdgeInsets.symmetric(horizontal: 8),
-                  labelStyle: GoogleFonts.inter(
-                    fontSize: 15,
-                    fontWeight: FontWeight.w600,
-                    letterSpacing: 0.2,
-                  ),
-                  unselectedLabelStyle: GoogleFonts.inter(
-                    fontSize: 15,
-                    fontWeight: FontWeight.w400,
-                  ),
-                  tabs: const [
-                    Tab(text: 'Overview'),
-                    Tab(text: 'Chapters'),
-                    Tab(text: 'Bookmarks'),
-                    Tab(text: 'AI Insights'),
-                  ],
-                ),
               ),
-            ),
-            
-            // Tab content
-            Expanded(
-              child: TabBarView(
+              
+              // Sticky Tab Bar
+              SliverPersistentHeader(
+                delegate: _SliverAppBarDelegate(
+                  TabBar(
+                    controller: _tabController,
+                    labelColor: Colors.white,
+                    unselectedLabelColor: Colors.white.withOpacity(0.6),
+                    indicatorColor: Colors.white,
+                    indicatorWeight: 3,
+                    indicatorSize: TabBarIndicatorSize.label,
+                    padding: const EdgeInsets.symmetric(horizontal: 8),
+                    labelStyle: GoogleFonts.inter(
+                      fontSize: _scaleFontSize(14),
+                      fontWeight: FontWeight.w600,
+                      letterSpacing: 0.2,
+                    ),
+                    unselectedLabelStyle: GoogleFonts.inter(
+                      fontSize: _scaleFontSize(14),
+                      fontWeight: FontWeight.w400,
+                    ),
+                    tabs: const [
+                      Tab(text: 'Overview'),
+                      Tab(text: 'Chapters'),
+                      Tab(text: 'Bookmarks'),
+                      Tab(text: 'AI Insights'),
+                    ],
+                  ),
+                ),
+                pinned: true, // Tabs remain at top when scrolling
+              ),
+            ];
+          },
+          body: TabBarView(
             controller: _tabController,
             children: [
-                  _buildOverviewTab(book),
-                  _buildChaptersTab(),
-                  _buildBookmarksTab(),
-                  _buildAiInsightsTab(),
+              _buildOverviewTab(book),
+              _buildChaptersTab(),
+              _buildBookmarksTab(),
+              _buildAiInsightsTab(),
             ],
           ),
         ),
-          ],
-        ),
-        // Enhanced bottom bar with heart button and "Start Reading" button
+        // Enhanced bottom bar with heart button and "Start Reading" button - MORE COMPACT
         bottomNavigationBar: Container(
           padding: EdgeInsets.only(
             left: MediaQuery.of(context).size.width * 0.05, 
             right: MediaQuery.of(context).size.width * 0.05, 
-            top: 16,
+            top: 12, // Reduced vertical padding
             bottom: MediaQuery.of(context).padding.bottom > 0 
-                ? MediaQuery.of(context).padding.bottom + 8 
-                : 20,
+                ? MediaQuery.of(context).padding.bottom + 6  // Reduced bottom padding
+                : 12, // Reduced bottom padding
           ),
           decoration: BoxDecoration(
-            color: Colors.white,
+            color: Theme.of(context).cardColor,
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withOpacity(0.06),
-                blurRadius: 15,
-                offset: const Offset(0, -3),
+                color: Colors.black.withOpacity(0.05),
+                blurRadius: 10,
+                offset: const Offset(0, -2),
               ),
             ],
           ),
           child: Row(
             children: [
-              // Heart/Favorite button (red circle with outline) - enhanced with animation
-              GestureDetector(
-                onTap: () {
-                  ref.read(favoritesProvider.notifier).toggleFavorite(book);
-                  // Add haptic feedback
-                  HapticFeedback.mediumImpact();
-                },
-                child: AnimatedContainer(
-                  duration: const Duration(milliseconds: 300),
-                  width: 56,
-                  height: 56,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: isFavorite ? Colors.red.withOpacity(0.1) : Colors.grey.withOpacity(0.05),
-                    border: Border.all(
-                      color: isFavorite ? Colors.red : Colors.grey.shade300,
-                      width: 2,
-                    ),
-                    boxShadow: isFavorite ? [
-                      BoxShadow(
-                        color: Colors.red.withOpacity(0.2),
-                        blurRadius: 8,
-                        spreadRadius: 1,
-                        offset: const Offset(0, 2),
-                      ),
-                    ] : [],
-                  ),
-                  child: Center(
-                    child: AnimatedScale(
-                      scale: isFavorite ? 1.1 : 1.0,
-                      duration: const Duration(milliseconds: 300),
-                      child: Icon(
-                        isFavorite ? Icons.favorite : Icons.favorite_border,
-                        color: isFavorite ? Colors.red : Colors.grey,
-                        size: 28,
-                      ),
-                    ),
-                  ),
-                ),
-              ),
+              // Heart/Favorite button - MORE COMPACT
+              Consumer(builder: (context, ref, child) {
+                return _buildFavoriteButton();
+              }),
               
-              SizedBox(width: MediaQuery.of(context).size.width * 0.04),
+              SizedBox(width: MediaQuery.of(context).size.width * 0.03), // Reduced spacing
               
-              // Start Reading button (themed button with book icon) - enhanced design
+              // Start Reading button - MORE COMPACT
               Expanded(
                 child: ElevatedButton.icon(
                   onPressed: () {
@@ -570,20 +614,20 @@ Download the app to read more.''';
                     );
                   },
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: Theme.of(context).colorScheme.primary,
+                    backgroundColor: primaryColor,
                     foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(vertical: 18),
+                    padding: const EdgeInsets.symmetric(vertical: 14), // Reduced from 18
                     shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(14),
+                      borderRadius: BorderRadius.circular(12), // Reduced from 14
                     ),
-                    elevation: 3,
-                    shadowColor: Theme.of(context).colorScheme.primary.withOpacity(0.4),
+                    elevation: 2, // Reduced from 3
+                    shadowColor: primaryColor.withOpacity(0.3),
                   ),
-                  icon: const Icon(Icons.menu_book, size: 22),
+                  icon: const Icon(Icons.menu_book, size: 20), // Reduced from 22
                   label: Text(
                     'Start Reading',
                     style: GoogleFonts.inter(
-                      fontSize: 17,
+                      fontSize: 16, // Reduced from 17
                       fontWeight: FontWeight.w600,
                       letterSpacing: 0.3,
                     ),
@@ -593,90 +637,253 @@ Download the app to read more.''';
             ],
           ),
         ),
-        backgroundColor: const Color(0xFFFAF0E6), // Off-white background for the main content area
       );
     }
   }
 
-  // Updated Header Content to use BookModel
-  Widget _buildHeaderContent(BuildContext context, Book book) {
+  // Minimalist header content with thumbnail and title side-by-side
+  Widget _buildMinimalHeaderContent(BuildContext context, Book book) {
+    // Get theme-specific colors for this method
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+    final screenWidth = MediaQuery.of(context).size.width;
+            
     return SafeArea(
-      child: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-            // Book cover image
-            SizedBox(
-              width: 140,
-              child: AspectRatio(
-                aspectRatio: 3/4,
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(8),
-                  child: CachedNetworkImage(
-                    imageUrl: book.thumbnailUrl ?? '',
-          fit: BoxFit.cover,
-                    errorWidget: (context, url, error) => Container(
-                      color: Colors.grey[200],
-                      child: const Icon(Icons.book, color: Colors.grey),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          // Enhanced Animated Book Cover
+          TweenAnimationBuilder<double>(
+            tween: Tween<double>(begin: 0.0, end: 1.0),
+            duration: const Duration(milliseconds: 800),
+            curve: Curves.easeOutCubic,
+            builder: (context, value, child) {
+              return Transform.translate(
+                offset: Offset(0, 8 * (1 - value)), // Slight float-in effect
+                child: Opacity(
+                  opacity: value,
+                  child: Container(
+                    // Improved proportions
+                    width: screenWidth * 0.28,
+                    height: screenWidth * 0.40,
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(10),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withOpacity(0.25),
+                          blurRadius: 12,
+                          offset: const Offset(0, 5),
+                          spreadRadius: 1,
+                        ),
+                      ],
                     ),
-                    placeholder: (context, url) => Container(
-                      color: Colors.grey[200],
-                      child: const Center(child: CircularProgressIndicator()),
+                    child: Hero(
+                      tag: 'book-cover-${book.firestoreDocId}',
+                      child: Material(
+                        elevation: 0, // Removed extra elevation
+                        shadowColor: Colors.transparent,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        clipBehavior: Clip.antiAlias,
+                        child: book.thumbnailUrl != null && book.thumbnailUrl!.isNotEmpty
+                          ? OptimizedCachedImage(
+                              imageUrl: book.thumbnailUrl!,
+                              fit: BoxFit.cover,
+                              cacheKey: 'book_thumbnail_${book.id}',
+                              placeholderBuilder: (context, url) => Container(
+                                color: isDark ? Colors.grey[800] : Colors.grey[200],
+                                child: const Center(
+                                  child: SizedBox(
+                                    width: 25,
+                                    height: 25,
+                                    child: CircularProgressIndicator(
+                                      color: Colors.white,
+                                      strokeWidth: 2,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                              errorBuilder: (context, url, error) => Container(
+                                color: isDark ? Colors.grey[800] : Colors.grey[200],
+                                child: Center(
+                                  child: Column(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Icon(Icons.broken_image_rounded, 
+                                          size: 36, 
+                                          color: Colors.white.withOpacity(0.8)),
+                                      const SizedBox(height: 8),
+                                      Text('Image not found',
+                                        style: GoogleFonts.inter(
+                                          fontSize: 12,
+                                          color: Colors.white.withOpacity(0.7),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            )
+                          : Container(
+                              color: isDark ? Colors.grey[800] : Colors.grey[200],
+                              child: Center(
+                                child: Column(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(Icons.menu_book_rounded, 
+                                        size: 40, 
+                                        color: Colors.white.withOpacity(0.8)),
+                                    const SizedBox(height: 8),
+                                    Text(
+                                      'No Cover',
+                                      style: GoogleFonts.inter(
+                                        fontSize: 14,
+                                        color: Colors.white.withOpacity(0.7),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                      ),
                     ),
                   ),
                 ),
-              ),
-            ),
-            const SizedBox(width: 16),
-            // Book info
-            Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                    book.title ?? 'Untitled',
-                    style: const TextStyle(
-                  color: Colors.white,
-                      fontSize: 20,
-                  fontWeight: FontWeight.bold,
+              );
+            },
+          ),
+          
+          const SizedBox(width: 20),
+          
+          // Enhanced Book Details with improved styling
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                TweenAnimationBuilder<double>(
+                  tween: Tween<double>(begin: 0.0, end: 1.0),
+                  duration: const Duration(milliseconds: 1000),
+                  curve: Curves.easeOutCubic,
+                  builder: (context, value, child) {
+                    return Opacity(
+                      opacity: value,
+                      child: Transform.translate(
+                        offset: Offset(20 * (1 - value), 0), // Slide in from right
+                        child: child!,
+                      ),
+                    );
+                  },
+                  child: Text(
+                    book.title ?? 'Unknown Title',
+                    style: TextStyle(
+                      fontFamily: 'NotoNastaliqUrdu',
+                      fontSize: _scaleFontSize(20),
+                      fontWeight: FontWeight.w600,
+                      color: Colors.white,
+                      height: 1.3,
+                      letterSpacing: 0.2,
+                    ),
+                    maxLines: 3,
+                    overflow: TextOverflow.ellipsis,
+                    textDirection: TextDirection.rtl,
+                  ),
                 ),
-              ),
-                  if (book.author != null) ...[
-                    const SizedBox(height: 4),
-              Text(
-                      'by ${book.author}',
-                      style: const TextStyle(
-                        color: Colors.white70,
-                        fontSize: 16,
+                
+                if (book.author != null && book.author!.isNotEmpty) ...[  
+                  const SizedBox(height: 6),
+                  TweenAnimationBuilder<double>(
+                    tween: Tween<double>(begin: 0.0, end: 1.0),
+                    duration: const Duration(milliseconds: 1200),
+                    curve: Curves.easeOutCubic,
+                    builder: (context, value, child) {
+                      return Opacity(
+                        opacity: value,
+                        child: child,
+                      );
+                    },
+                    child: Text(
+                      'by ${book.author!}',
+                      style: TextStyle(
+                        fontFamily: 'NotoNastaliqUrdu',
+                        fontSize: _scaleFontSize(14),
+                        fontWeight: FontWeight.w400,
+                        color: Colors.white.withOpacity(0.85),
+                        fontStyle: FontStyle.italic,
+                        textBaseline: TextBaseline.alphabetic,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      textDirection: TextDirection.rtl,
+                    ),
+                  ),
+                ],
+                
+                // Add tags if available
+                if (book.tags != null && book.tags!.isNotEmpty) ...[  
+                  const SizedBox(height: 10),
+                  SizedBox(
+                    height: 28,
+                    child: ListView.builder(
+                      scrollDirection: Axis.horizontal,
+                      itemCount: book.tags!.length > 3 ? 3 : book.tags!.length,
+                      itemBuilder: (context, index) {
+                        return Padding(
+                          padding: EdgeInsets.only(right: 6),
+                          child: Container(
+                            padding: EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                            decoration: BoxDecoration(
+                              color: Colors.white.withOpacity(0.15),
+                              borderRadius: BorderRadius.circular(14),
+                              border: Border.all(color: Colors.white.withOpacity(0.2), width: 1),
+                            ),
+                            child: Text(
+                              book.tags![index],
+                              style: GoogleFonts.inter(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w500,
+                                color: Colors.white.withOpacity(0.9),
+                              ),
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                ] else if (book.type != null && book.type!.isNotEmpty) ...[  
+                  // Show book type if no tags
+                  const SizedBox(height: 10),
+                  Container(
+                    padding: EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withOpacity(0.15),
+                      borderRadius: BorderRadius.circular(14),
+                      border: Border.all(color: Colors.white.withOpacity(0.2), width: 1),
+                    ),
+                    child: Text(
+                      book.type!,
+                      style: GoogleFonts.inter(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w500,
+                        color: Colors.white.withOpacity(0.9),
                       ),
                     ),
-                  ],
-                  if (book.tags != null && book.tags!.isNotEmpty) ...[
-              const SizedBox(height: 8),
-              Wrap(
-                      spacing: 4,
-                runSpacing: 4,
-                      children: book.tags!.map((tag) => Chip(
-                        label: Text(tag),
-                        materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                        labelStyle: const TextStyle(fontSize: 10),
-                        padding: EdgeInsets.zero,
-                        visualDensity: VisualDensity.compact,
-                      )).toList(),
-                    ),
-                  ]
-            ],
+                  ),
+                ],
+              ],
+            ),
           ),
-        ),
-      ],
-        ),
+        ],
       ),
     );
   }
-
+  
   // Enhanced Overview Tab with modern design
   Widget _buildOverviewTab(Book book) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+
     return SingleChildScrollView(
       padding: EdgeInsets.symmetric(
         horizontal: MediaQuery.of(context).size.width * 0.05,
@@ -685,21 +892,22 @@ Download the app to read more.''';
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Description section with beautiful styling
+          // Description section
           Container(
             decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(16),
+              color: colorScheme.surface, // Use theme surface color
+              borderRadius: BorderRadius.circular(12), // Adjusted radius
+              border: Border.all(color: theme.dividerColor.withOpacity(0.5), width: 1), // Subtle border
               boxShadow: [
                 BoxShadow(
-                  color: Colors.black.withOpacity(0.05),
-                  blurRadius: 15,
+                  color: theme.shadowColor.withOpacity(0.03), // More subtle shadow
+                  blurRadius: 10,
                   spreadRadius: 1,
-                  offset: const Offset(0, 3),
+                  offset: const Offset(0, 2),
                 ),
               ],
             ),
-            padding: const EdgeInsets.all(22),
+            padding: const EdgeInsets.all(20), // Adjusted padding
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -708,12 +916,12 @@ Download the app to read more.''';
                     Container(
                       padding: const EdgeInsets.all(10),
                       decoration: BoxDecoration(
-                        color: Theme.of(context).colorScheme.primary.withOpacity(0.1),
+                        color: colorScheme.primary.withOpacity(0.1),
                         borderRadius: BorderRadius.circular(12),
                       ),
                       child: Icon(
-                        Icons.description_outlined, 
-                        color: Theme.of(context).colorScheme.primary,
+                        Icons.description_outlined,
+                        color: colorScheme.primary,
                         size: 22
                       ),
                     ),
@@ -721,38 +929,42 @@ Download the app to read more.''';
                     Text(
                       'Description',
                       style: GoogleFonts.playfairDisplay(
-                        fontSize: 20, 
-                        fontWeight: FontWeight.bold,
-                        color: Colors.grey.shade800,
+                        fontSize: 20, // Matched reference style
+                        fontWeight: FontWeight.w600, // Matched reference style
+                        color: colorScheme.onSurface,
                       ),
                     ),
                   ],
                 ),
-                const SizedBox(height: 20),
+                const SizedBox(height: 16), // Adjusted spacing
                 Text(
                   book.description ?? 'No description available.',
-                  style: GoogleFonts.inter(
-                    fontSize: 16, 
-                    height: 1.7, 
-                    color: Colors.grey.shade700,
+                  style: TextStyle(
+                    fontFamily: 'NotoNastaliqUrdu',
+                    fontSize: 17,
+                    height: 1.8,
+                    color: colorScheme.onSurfaceVariant, // Theme consistent color
                   ),
+                  textDirection: TextDirection.rtl,
                 ),
               ],
             ),
           ),
-          
+
           const SizedBox(height: 24),
-          
+
           // Book details section
-          if (book.author != null || book.publisher != null || 
-              book.publicationDate != null || book.defaultLanguage != null) ...[
+          if (book.author != null || book.publisher != null ||
+              book.publicationDate != null || book.defaultLanguage != null ||
+              book.additionalFields['page_count'] != null) ...[
             Container(
               decoration: BoxDecoration(
-                color: Colors.white,
+                color: colorScheme.surface, // Use theme surface color
                 borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: theme.dividerColor.withOpacity(0.5), width: 1), // Subtle border
                 boxShadow: [
                   BoxShadow(
-                    color: Colors.black.withOpacity(0.04),
+                    color: theme.shadowColor.withOpacity(0.03), // More subtle shadow
                     blurRadius: 10,
                     spreadRadius: 1,
                     offset: const Offset(0, 2),
@@ -765,15 +977,15 @@ Download the app to read more.''';
                 children: [
                   Row(
                     children: [
-                      const Icon(Icons.info_outline, 
-                        color: Color(0xFFB07A2B), size: 22),
+                      Icon(Icons.info_outline,
+                        color: colorScheme.secondary, size: 22), // Use theme secondary color
                       const SizedBox(width: 10),
                       Text(
                         'Book Details',
-                        style: TextStyle(
-                          fontSize: 18, 
-                          fontWeight: FontWeight.bold,
-                          color: Colors.grey.shade800,
+                        style: GoogleFonts.playfairDisplay( // Consistent section title style
+                          fontSize: 20,
+                          fontWeight: FontWeight.w600,
+                          color: colorScheme.onSurface,
                         ),
                       ),
                     ],
@@ -781,8 +993,8 @@ Download the app to read more.''';
                   const SizedBox(height: 16),
                   if (book.author != null) _buildDetailRow('Author', book.author!),
                   if (book.publisher != null) _buildDetailRow('Publisher', book.publisher!),
-                  if (book.publicationDate != null) _buildDetailRow('Published', book.publicationDate!),
-                  if (book.defaultLanguage != null) _buildDetailRow('Language', book.defaultLanguage!),
+                  if (book.additionalFields['page_count'] != null) _buildDetailRow('Pages', '${book.additionalFields['page_count']}'),
+                  // Removed publication date and language as requested
                 ],
               ),
             ),
@@ -794,33 +1006,43 @@ Download the app to read more.''';
 
   // Enhanced helper for detail rows
   Widget _buildDetailRow(String label, String value) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+
     return Padding(
-      padding: const EdgeInsets.only(bottom: 16),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
+      padding: const EdgeInsets.only(bottom: 8), // Reduced bottom padding for tighter list
+      child: Column(
         children: [
-          SizedBox(
-            width: 100,
-            child: Text(
-              label,
-              style: GoogleFonts.inter(
-                fontWeight: FontWeight.w600, 
-                fontSize: 15,
-                color: Colors.grey.shade700,
-                letterSpacing: 0.3,
-              ),
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 8.0), // Padding for text content
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                SizedBox(
+                  width: 100, // Keep consistent label width
+                  child: Text(
+                    label,
+                    style: GoogleFonts.inter(
+                      fontWeight: FontWeight.w500, // Adjusted weight
+                      fontSize: 14, // Adjusted size
+                      color: colorScheme.onSurfaceVariant, // Theme consistent color
+                    ),
+                  ),
+                ),
+                Expanded(
+                  child: Text(
+                    value,
+                    style: GoogleFonts.inter(
+                      fontSize: 15,
+                      color: colorScheme.onSurface, // Theme consistent color
+                      height: 1.5,
+                    ),
+                  ),
+                ),
+              ],
             ),
           ),
-          Expanded(
-            child: Text(
-              value, 
-              style: GoogleFonts.inter(
-                fontSize: 15,
-                color: Colors.grey.shade800,
-                height: 1.5,
-              ),
-            ),
-          ),
+          Divider(height: 1, thickness: 0.5, color: theme.dividerColor.withOpacity(0.7)), // Subtle divider
         ],
       ),
     );
@@ -829,7 +1051,7 @@ Download the app to read more.''';
   // Update Chapters Tab to use List<HeadingModel>
   Widget _buildChaptersTab() {
     return FutureBuilder<List<dynamic>>(
-      future: _loadBookStructure(widget.bookId),
+      future: _structureFuture, // Use cached future
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
           return const Center(child: CircularProgressIndicator());
@@ -898,7 +1120,7 @@ Download the app to read more.''';
                         Material(
                           elevation: 1.0, // Subtle elevation
                           borderRadius: BorderRadius.circular(8.0),
-                          color: Theme.of(context).colorScheme.surfaceVariant.withOpacity(0.5),
+                          color: Theme.of(context).colorScheme.surfaceContainerHighest.withOpacity(0.5),
                           child: ListTile(
                             contentPadding: const EdgeInsets.symmetric(vertical: 8.0, horizontal: 16.0),
                             leading: Icon(
@@ -978,221 +1200,158 @@ Download the app to read more.''';
     );
   }
   
+  // Navigate to a chapter for reading
+  void _navigateToChapter(Chapter chapter) {
+    if (widget.bookId.isNotEmpty && chapter.id != null) {
+      // Navigate to reading screen with chapter information using query parameters
+      // Ensure all parameters are converted to strings
+      final uri = Uri(path: '/read/${widget.bookId}', queryParameters: {
+        'chapterId': chapter.id.toString(),
+      });
+      context.go(uri.toString());
+      _log.info('Navigating to chapter: ${chapter.title}, ID: ${chapter.id}');
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Could not open this chapter. Missing required information.'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+
+  // Navigate to a specific heading within a chapter
+  void _navigateToHeading(Chapter chapter, Heading heading) {
+    if (widget.bookId.isNotEmpty && chapter.id != null && heading.id != null) {
+      // Navigate to reading screen with heading information using query parameters
+      // Ensure all parameters are converted to strings
+      final uri = Uri(path: '/read/${widget.bookId}', queryParameters: {
+        'chapterId': chapter.id.toString(),
+        'headingId': heading.id.toString(),
+      });
+      context.go(uri.toString());
+      _log.info('Navigating to heading: ${heading.title}, ID: ${heading.id}, in chapter: ${chapter.title}');
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Could not open this section. Missing required information.'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+
   Widget _buildChapterCard(int index, Chapter chapter) {
     final hasHeadings = chapter.headings != null && chapter.headings!.isNotEmpty;
-    // Create a GlobalKey for the ExpansionTile to control its state
-    final GlobalKey expansionTileKey = GlobalKey(); 
+    final PageStorageKey expansionTileKey = PageStorageKey<String>('chapter_${chapter.id}');
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
 
     return Card(
-      margin: const EdgeInsets.only(bottom: 16),
-      elevation: 1.5,
-      shadowColor: Colors.black.withOpacity(0.1),
+      margin: const EdgeInsets.only(bottom: 12), // Slightly reduced margin
+      elevation: 1.0, // Subtle elevation
+      color: colorScheme.surface, // Use theme surface color
+      shadowColor: theme.shadowColor.withOpacity(0.05), // Subtle shadow
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(12),
+        side: BorderSide(color: theme.dividerColor.withOpacity(0.5), width: 1), // Consistent border style
       ),
-      clipBehavior: Clip.antiAlias,
-      child: Column(
-        children: [
-          // Chapter title row with enhanced design
-          Container(
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.centerLeft,
-                end: Alignment.centerRight,
-                colors: [
-                  Theme.of(context).colorScheme.primary.withOpacity(0.08),
-                  Colors.white,
-                ],
-                stops: const [0.0, 0.3],
-              ),
-              border: Border(
-                left: BorderSide(
-                  color: Theme.of(context).colorScheme.primary,
-                  width: 4,
-                ),
-              ),
-            ),
-            child: ListTile(
-              contentPadding: const EdgeInsets.fromLTRB(16, 16, 16, 16),
-              leading: Container(
-                width: 44,
-                height: 44,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  gradient: LinearGradient(
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                    colors: [
-                      Theme.of(context).colorScheme.primary.withOpacity(0.7),
-                      Theme.of(context).colorScheme.primary,
-                    ],
-                  ),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Theme.of(context).colorScheme.primary.withOpacity(0.3),
-                      blurRadius: 8,
-                      offset: const Offset(0, 3),
-                    ),
-                  ],
-                ),
-                child: Center(
-                  child: Text(
-                    '$index',
-                    style: GoogleFonts.inter(
-                      color: Colors.white,
-                      fontWeight: FontWeight.bold,
-                      fontSize: 18,
-                    ),
-                  ),
-                ),
-              ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(12),
+        child: Theme(
+          data: theme.copyWith(dividerColor: Colors.transparent), // Remove default divider in ExpansionTile
+          child: InkWell(
+            onTap: hasHeadings ? null : () => _navigateToChapter(chapter),
+            child: ExpansionTile(
+              key: expansionTileKey,
+              backgroundColor: colorScheme.surface, // Theme consistent
+              collapsedBackgroundColor: colorScheme.surface, // Theme consistent
+              iconColor: colorScheme.primary,
+              collapsedIconColor: colorScheme.onSurfaceVariant,
+              tilePadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10), // Adjusted padding
               title: Text(
-                chapter.title ?? 'Chapter $index',
-                style: GoogleFonts.playfairDisplay(
-                  fontWeight: FontWeight.bold,
+                chapter.title ?? 'Untitled Chapter',
+                style: TextStyle(
+                  fontFamily: 'NotoNastaliqUrdu',
                   fontSize: 18,
-                  color: Colors.grey.shade800,
+                  fontWeight: FontWeight.w600,
+                  color: colorScheme.onSurface, // Theme consistent
+                ),
+                textAlign: TextAlign.start,
+                textDirection: TextDirection.rtl,
+              ),
+              leading: CircleAvatar(
+                backgroundColor: colorScheme.primary.withOpacity(0.1),
+                foregroundColor: colorScheme.primary,
+                child: Text(
+                  index.toString(),
+                  style: GoogleFonts.inter(fontWeight: FontWeight.bold),
                 ),
               ),
-              subtitle: chapter.description != null && chapter.description!.isNotEmpty
-                  ? Padding(
-                      padding: const EdgeInsets.only(top: 6),
-                      child: Text(
-                        chapter.description!,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: GoogleFonts.inter(
-                          fontSize: 14,
-                          color: Colors.grey.shade600,
-                          height: 1.4,
+              childrenPadding: const EdgeInsets.only(left: 16, right: 16, bottom: 12, top: 0), // Adjusted padding
+              children: hasHeadings
+                  ? chapter.headings!
+                      .map((heading) => _buildHeadingItem(0, heading, chapter))
+                      .toList()
+                  : [
+                      Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 12.0, horizontal: 16.0),
+                        child: Text(
+                          'No sub-topics in this chapter.',
+                          style: GoogleFonts.inter(color: colorScheme.onSurfaceVariant.withOpacity(0.7)),
+                          textAlign: TextAlign.center,
                         ),
-                      ),
-                    )
-                  : null,
-              trailing: hasHeadings
-                  ? null // Remove trailing icon if ExpansionTile is present
-                  : Container(
-                      padding: const EdgeInsets.all(8),
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        color: Theme.of(context).colorScheme.primary.withOpacity(0.1),
-                      ),
-                      child: Icon(
-                        Icons.arrow_forward_ios,
-                        size: 16,
-                        color: Theme.of(context).colorScheme.primary,
-                      ),
-                    ),
-          onTap: () {
-                if (hasHeadings) {
-                  // If has headings, the user should tap the ExpansionTile's chevron to expand/collapse.
-                  // Tapping the main ListTile for a chapter with headings currently does not toggle expansion directly.
-                  // This was simplified to avoid needing an ExpansionTileController for now.
-                  // See previous comments if direct ListTile tap-to-toggle is desired.
-                  _log.info("Chapter card (with headings) tapped. User should use chevron to see headings.");
-                } else {
-                  // If no headings, navigate to reading screen with chapter context
-                  AppLogger.logUserAction('BookDetail', 'open_chapter',
-                    details: {'chapterId': chapter.firestoreDocId, 'title': chapter.title});
-                  
-            context.goNamed(
-              RouteNames.readingBook, 
-              pathParameters: {'bookId': widget.bookId},
-                    queryParameters: {'chapterId': chapter.firestoreDocId},
-                  );
+                      )
+                    ],
+              onExpansionChanged: (isExpanded) {
+                if (isExpanded && !hasHeadings) {
+                  _navigateToChapter(chapter);
                 }
-              }
-            ),
+              },
           ),
-          
-          // Headings (if any)
-          if (hasHeadings)
-            ExpansionTile(
-              key: expansionTileKey, // Assign the key
-              title: Text(
-                '${chapter.headings!.length} Section${chapter.headings!.length > 1 ? 's' : ''}',
-                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                  color: Theme.of(context).colorScheme.secondary,
-                  fontWeight: FontWeight.w500,
+        ),
+      ),
+      )
+    );
+    
+  }
+
+  Widget _buildHeadingItem(int index, Heading heading, Chapter chapter) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+
+    return Material(
+      color: Colors.transparent, // Ensure it blends with ExpansionTile
+      child: InkWell(
+        onTap: () {
+          // Navigate to the heading using the navigation method
+          _navigateToHeading(chapter, heading);
+        },
+        borderRadius: BorderRadius.circular(8), // Smaller radius for inner items
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 16), // Adjusted padding
+          child: Row(
+            children: [
+              Expanded(
+                child: Text(
+                  heading.title ?? 'Untitled Heading',
+                  style: TextStyle(
+                    fontFamily: 'NotoNastaliqUrdu',
+                    fontSize: 16,
+                    color: colorScheme.onSurfaceVariant, // Theme consistent
+                  ),
+                  textAlign: TextAlign.start,
+                  textDirection: TextDirection.rtl,
                 ),
               ),
-              backgroundColor: Theme.of(context).cardColor,
-              collapsedBackgroundColor: Theme.of(context).colorScheme.surface.withOpacity(0.5),
-              childrenPadding: const EdgeInsets.only(bottom: 12, left: 8, right: 8),
-              tilePadding: const EdgeInsets.symmetric(horizontal: 24.0),
-              iconColor: Theme.of(context).colorScheme.primary,
-              collapsedIconColor: Theme.of(context).colorScheme.onSurfaceVariant,
-              children: [
-                for (int headingIndex = 0; 
-                     headingIndex < chapter.headings!.length; 
-                     headingIndex++)
-                  _buildHeadingItem(
-                    headingIndex + 1, 
-                    chapter.headings![headingIndex], 
-                    chapter,
-                  ),
-              ],
-            ),
-        ],
-      ),
-    );
-  }
-
-  // Widget for displaying a heading item in a chapter
-  Widget _buildHeadingItem(int index, Heading heading, Chapter chapter) {
-    return ListTile(
-      contentPadding: const EdgeInsets.only(left: 24, right: 16, top: 8, bottom: 8), // Adjusted padding
-      leading: Container(
-        width: 28, // Slightly smaller than chapter index
-        height: 28, // Slightly smaller
-        decoration: BoxDecoration(
-          shape: BoxShape.circle,
-          color: Theme.of(context).colorScheme.secondary.withOpacity(0.1),
-          border: Border.all( // Optional: add a subtle border
-            color: Theme.of(context).colorScheme.secondary.withOpacity(0.3),
-            width: 1,
-          )
-        ),
-        child: Center(
-          child: Text(
-            '$index',
-            style: TextStyle(
-              fontSize: 13, // Slightly smaller font
-              color: Theme.of(context).colorScheme.secondary,
-              fontWeight: FontWeight.w600, // Bolder for a small number
-            ),
+              Icon(Icons.chevron_right, color: theme.dividerColor.withOpacity(0.8)), // Subtle icon color
+            ],
           ),
         ),
       ),
-      title: Text(
-        heading.title ?? 'Section $index',
-        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-          color: Theme.of(context).colorScheme.onSurface, // Standard text color
-        ),
-        maxLines: 2,
-        overflow: TextOverflow.ellipsis,
-      ),
-      trailing: Icon(
-        Icons.arrow_forward_ios,
-        size: 14,
-        color: Theme.of(context).colorScheme.primary, // Consistent with chapter navigation icon color
-      ),
-      onTap: () {
-        AppLogger.logUserAction('BookDetail', 'open_heading', 
-          details: {'headingId': heading.firestoreDocId, 'title': heading.title});
-        // Navigate to reading screen with heading context
-        context.goNamed(
-          RouteNames.readingBook,
-          pathParameters: {'bookId': widget.bookId},
-          queryParameters: {
-            'chapterId': chapter.firestoreDocId,
-            'headingId': heading.firestoreDocId
-          },
-        );
-      },
     );
   }
-
+  
   // Helper to fetch book structure (volumes and chapters)
   Future<List<dynamic>> _loadBookStructure(String bookId) async {
     final log = AppLogger.getLogger('BookDetailScreen');
@@ -1316,99 +1475,105 @@ Download the app to read more.''';
     }
   }
   
-  // Update Bookmarks Tab to potentially use BookModel
+  // Update Bookmarks Tab to use AsyncValue pattern
   Widget _buildBookmarksTab() {
-    // Use FutureBuilder to fetch bookmarks
-    return FutureBuilder<List<Bookmark>>(
-      future: ref.read(readingRepositoryProvider).getBookmarks(widget.bookId),
-      builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting) {
-          return const Center(child: CircularProgressIndicator());
-        }
-        if (snapshot.hasError) {
-          _log.severe('Error loading bookmarks: ${snapshot.error}', snapshot.error, snapshot.stackTrace);
-      return Center(
-        child: Column(
-              mainAxisSize: MainAxisSize.min,
-          children: [
-                const Icon(Icons.error_outline, size: 48, color: Colors.red),
-                const SizedBox(height: 16),
-                Text(
-                  'Could not load bookmarks',
-                  style: Theme.of(context).textTheme.titleMedium,
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  'Please try again later.',
-                  style: Theme.of(context).textTheme.bodyMedium,
-                ),
-              ],
-            ),
-          );
-        }
-        if (!snapshot.hasData || snapshot.data!.isEmpty) {
-          return Center(
-      child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-                Icon(Icons.bookmark_border, size: 48, color: Colors.grey[400]),
-            const SizedBox(height: 16),
-                Text(
-                  'No bookmarks yet',
-                  style: Theme.of(context).textTheme.titleMedium,
-                ),
-            const SizedBox(height: 8),
-                Text(
-                  'You can add bookmarks while reading.',
-                  style: TextStyle(color: Colors.grey[600]),
-                ),
-        ],
-      ),
-    );
-  }
-  
-        final bookmarks = snapshot.data!;
-        return ListView.separated(
-          padding: const EdgeInsets.all(16.0),
-          itemCount: bookmarks.length,
-          separatorBuilder: (context, index) => Divider(height: 1, color: Colors.grey.shade300),
-          itemBuilder: (context, index) {
-            final bookmark = bookmarks[index];
-            return ListTile(
-              leading: Icon(Icons.bookmark, color: Theme.of(context).colorScheme.primary),
-              title: Text(
-                bookmark.headingTitle,
-                style: const TextStyle(fontWeight: FontWeight.bold),
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-              ),
-              subtitle: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-                  if (bookmark.chapterTitle.isNotEmpty)
-                    Text('Chapter: ${bookmark.chapterTitle}', maxLines: 1, overflow: TextOverflow.ellipsis),
-                  if (bookmark.textContentSnippet != null && bookmark.textContentSnippet!.isNotEmpty)
-                    Padding(
-                      padding: const EdgeInsets.only(top: 4.0),
-                      child: Text(
-                        bookmark.textContentSnippet!,
-                        style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                      ),
+    final logger = AppLogger.getLogger('BookDetailScreen');
+    // Use AsyncValue pattern to safely access the repository
+    final repoAsyncValue = ref.watch(readingRepositoryProvider);
+    
+    return repoAsyncValue.when<Widget>(
+      data: (repository) {
+        return FutureBuilder<List<Bookmark>>(
+          future: repository.getBookmarks(widget.bookId),
+          builder: (context, snapshot) {
+            if (snapshot.connectionState == ConnectionState.waiting) {
+              return const Center(child: CircularProgressIndicator());
+            }
+            if (snapshot.hasError) {
+              logger.severe('Error loading bookmarks: ${snapshot.error}', snapshot.error, snapshot.stackTrace);
+              return Center(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(Icons.error_outline, size: 48, color: Colors.red),
+                    const SizedBox(height: 16),
+                    Text(
+                      'Could not load bookmarks',
+                      style: Theme.of(context).textTheme.titleMedium,
                     ),
-                ],
-              ),
-              trailing: const Icon(Icons.arrow_forward_ios, size: 16),
-              onTap: () {
-                // Navigate to the bookmarked location
-                // This requires knowing the chapterId and headingId
-              context.goNamed(
-                RouteNames.readingBook, 
-                  pathParameters: {'bookId': widget.bookId},
-                  queryParameters: {
-                    'chapterId': bookmark.chapterId, // Ensure Bookmark model has chapterId
-                    'headingId': bookmark.headingId, // Ensure Bookmark model has headingId
+                    const SizedBox(height: 8),
+                    Text(
+                      'Please try again later.',
+                      style: Theme.of(context).textTheme.bodyMedium,
+                    ),
+                  ],
+                ),
+              );
+            }
+            if (!snapshot.hasData || snapshot.data!.isEmpty) {
+              return Center(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(Icons.bookmark_border, size: 48, color: Colors.grey[400]),
+                    const SizedBox(height: 16),
+                    Text(
+                      'No bookmarks yet',
+                      style: Theme.of(context).textTheme.titleMedium,
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      'You can add bookmarks while reading.',
+                      style: TextStyle(color: Colors.grey[600]),
+                    ),
+                  ],
+                ),
+              );
+            }
+            
+            final bookmarks = snapshot.data!;
+            return ListView.separated(
+              padding: const EdgeInsets.all(16.0),
+              itemCount: bookmarks.length,
+              separatorBuilder: (context, index) => Divider(height: 1, color: Colors.grey.shade300),
+              itemBuilder: (context, index) {
+                final bookmark = bookmarks[index];
+                return ListTile(
+                  leading: Icon(Icons.bookmark, color: Theme.of(context).colorScheme.primary),
+                  title: Text(
+                    bookmark.headingTitle,
+                    style: const TextStyle(fontWeight: FontWeight.bold),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  subtitle: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      if (bookmark.chapterTitle.isNotEmpty)
+                        Text('Chapter: ${bookmark.chapterTitle}', maxLines: 1, overflow: TextOverflow.ellipsis),
+                      if (bookmark.textContentSnippet != null && bookmark.textContentSnippet!.isNotEmpty)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 4.0),
+                          child: Text(
+                            bookmark.textContentSnippet!,
+                            style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                    ],
+                  ),
+                  trailing: const Icon(Icons.arrow_forward_ios, size: 16),
+                  onTap: () {
+                    // Navigate to the bookmarked location
+                    context.goNamed(
+                      RouteNames.readingBook, 
+                      pathParameters: {'bookId': widget.bookId},
+                      queryParameters: {
+                        'chapterId': bookmark.chapterId,
+                        'headingId': bookmark.headingId,
+                      },
+                    );
                   },
                 );
               },
@@ -1416,13 +1581,60 @@ Download the app to read more.''';
           },
         );
       },
+      loading: () => const Center(child: CircularProgressIndicator()),
+      error: (error, stack) {
+        logger.severe('Error accessing reading repository', error, stack);
+        return Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(Icons.error_outline, size: 48, color: Colors.red),
+              const SizedBox(height: 16),
+              Text(
+                'Repository error',
+                style: Theme.of(context).textTheme.titleMedium,
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'Please try again later',
+                style: Theme.of(context).textTheme.bodyMedium,
+              ),
+            ],
+          ),
+        );
+      },
     );
   }
 
   // Update AI Insights Tab
   Widget _buildAiInsightsTab() {
-    return const Center(
-      child: Text('AI Insights coming soon'),
+    return Center(
+      child: Text('AI Insights Coming Soon'),
+    );
+  }
+
+  // Helper method to build favorite button with dynamic icon and action
+  Widget _buildFavoriteButton() {
+    // Watch the list of favorite books for reactive updates
+    final favoriteBooksList = ref.watch(favoritesProvider);
+    // Determine if the current book is a favorite
+    final bool isFavorite = _book != null 
+        ? favoriteBooksList.any((favBook) => favBook.firestoreDocId == _book!.firestoreDocId) 
+        : false;
+
+    return IconButton(
+      icon: Icon(
+        isFavorite ? Icons.favorite : Icons.favorite_border,
+        color: isFavorite ? AppColor.accent : (Theme.of(context).brightness == Brightness.dark ? Colors.white : Colors.black54),
+      ),
+      onPressed: () async {
+        if (_book != null) {
+          // Use the correct provider and its notifier to toggle favorite status
+          await ref.read(favoritesProvider.notifier).toggleFavorite(_book!);
+          // UI will update via ref.watch on favoritesProvider
+        }
+      },
+      tooltip: isFavorite ? 'Remove from Favorites' : 'Add to Favorites',
     );
   }
 }

@@ -86,4 +86,17 @@ abstract class ReadingRepository {
 
   // Debug method for Firestore structure (if you need to keep it)
   Future<void> debugFirestoreStructure(String bookId);
+  
+  // Offline reading methods
+  /// Download book and all related content for offline reading
+  Future<bool> downloadBookForOfflineReading(String bookId);
+  
+  /// Check if book is fully downloaded and available offline
+  Future<bool> isBookAvailableOffline(String bookId);
+  
+  /// Get a list of all downloaded book IDs
+  Future<List<String>> getDownloadedBookIds();
+  
+  /// Get a stream of download progress events
+  Stream<Map<String, dynamic>> getDownloadProgressStream();
 } 

@@ -1,43 +1,274 @@
-import 'package:cloud_firestore/cloud_firestore.dart'; // Add Firestore import
-import 'package:flutter_riverpod/flutter_riverpod.dart'; // Import Riverpod
-import 'package:modudi/core/services/gemini_service.dart'; // Import Gemini service
+import 'dart:async';
+import 'dart:convert';
+
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:logging/logging.dart';
+import 'package:modudi/core/cache/cache_service.dart';
+import 'package:modudi/core/cache/config/cache_constants.dart';
+import 'package:modudi/core/cache/models/cache_priority.dart';
+import 'package:modudi/core/cache/models/cache_result.dart';
+import 'package:modudi/core/providers/providers.dart';
+import 'package:modudi/core/services/gemini_service.dart';
+import 'package:modudi/features/books/data/models/book_models.dart';
 import 'package:modudi/features/reading/domain/repositories/reading_repository.dart';
-import 'package:modudi/features/books/data/models/book_models.dart'; // Import new models
-import '../models/bookmark_model.dart'; // Corrected import for Bookmark
-import 'package:logging/logging.dart'; // Import logger
-import 'dart:convert'; // For JSON encoding/decoding
-import 'package:shared_preferences/shared_preferences.dart'; // For local storage
+import 'package:modudi/features/reading/data/models/bookmark_model.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class ReadingRepositoryImpl implements ReadingRepository {
   final GeminiService geminiService;
-  final FirebaseFirestore _firestore; // Add Firestore instance
-  final _log = Logger('ReadingRepository'); // Add logger instance
-
-  // Simple in-memory cache for headings
-  final Map<String, dynamic> _headingCache = {};
+  final FirebaseFirestore _firestore;
+  final CacheService _cacheService;
+  final _log = Logger('ReadingRepository');
 
   // Key prefix for storing bookmarks in shared_preferences
   static const String _bookmarkStorePrefix = 'bookmarks_';
 
   ReadingRepositoryImpl({
     required this.geminiService,
-    FirebaseFirestore? firestore, // Inject Firestore
+    required CacheService cacheService,
+    FirebaseFirestore? firestore,
   })
-   : _firestore = firestore ?? FirebaseFirestore.instance; // Initialize Firestore
+   : _firestore = firestore ?? FirebaseFirestore.instance,
+     _cacheService = cacheService;
 
   @override
   Future<Book> getBookData(String bookId) async {
     try {
-      final docSnap = await _firestore.collection('books').doc(bookId).get();
-      if (!docSnap.exists || docSnap.data() == null) {
-        throw Exception('Book with ID $bookId not found in Firestore.');
+      // STEP 1: Check if we have a complete book in memory cache first (ultra-fast)
+      _log.info('Checking cache for book ID: $bookId');
+      final cacheResult = await _cacheService.getCachedData<Map<String, dynamic>>(
+        key: '${CacheConstants.bookKeyPrefix}$bookId',
+        boxName: CacheConstants.booksBoxName,
+      );
+      
+      // Create a variable to track if we need a background refresh
+      bool needsBackgroundRefresh = false;
+      
+      // If book exists in cache, use it
+      if (cacheResult.hasData) {
+        _log.info('Book found in cache for ID: $bookId');
+        final cachedBook = Book.fromMap(bookId, cacheResult.data!);
+        
+        // Mark as from cache
+        final bookWithCacheFlag = cachedBook.copyWith(isFromCache: true);
+        
+        // Update book access priority to improve cache retention
+        await _cacheService.updateBookPriority(bookId, CachePriorityLevel.high);
+        
+        // If the cached book has all necessary data, return it immediately
+        if (bookWithCacheFlag.volumes != null && bookWithCacheFlag.volumes!.isNotEmpty) {
+          _log.info('Returning complete book from cache: ${bookWithCacheFlag.title}');
+          
+          // Check if cache is stale and needs a background refresh
+          // Only refresh if the cache entry is older than 24 hours
+          if (cacheResult.metadata != null) {
+            final cacheAge = DateTime.now().millisecondsSinceEpoch - 
+                cacheResult.metadata!.timestamp;
+            if (cacheAge > const Duration(hours: 24).inMilliseconds) {
+              _log.info('Cache is stale (> 24h old), will refresh in background');
+              needsBackgroundRefresh = true;
+            } else {
+              _log.info('Cache is fresh (< 24h old), no background refresh needed');
+            }
+          } else {
+            // If we don't have metadata, assume we need a refresh
+            needsBackgroundRefresh = true;
+          }
+          
+          // Only trigger background refresh if necessary and AFTER returning cached data
+          if (needsBackgroundRefresh) {
+            // This doesn't block the UI as it schedules the work to happen later
+            _refreshBookInBackground(bookId);
+          }
+          
+          // Return cached data immediately, background refresh happens independently
+          return bookWithCacheFlag;
+        }
+        
+        _log.info('Cached book missing volumes/headings, will supplement with Firestore data');
       }
-      return Book.fromMap(docSnap.id, docSnap.data()!); 
-    } catch (e) {
-      // Log error
-      _log.severe('Error fetching book data for bookId $bookId: $e');
-      rethrow;
+      
+      // Check if device is online before attempting to access Firestore
+      final isOnline = await _cacheService.isConnected();
+      if (!isOnline) {
+        _log.info('Device is offline, can only use cache data');
+        if (cacheResult.hasData) {
+          // Return whatever we have from cache even if incomplete
+          return Book.fromMap(bookId, cacheResult.data!).copyWith(isFromCache: true);
+        } else {
+          throw Exception('No cached data available for book ID: $bookId and device is offline');
+        }
+      }
+      
+      // STEP 2: Try Firestore (remote data source) - only if online
+      _log.info('Querying Firestore for book ID: $bookId');
+      DocumentSnapshot? docSnapshot;
+      
+      try {
+        docSnapshot = await _firestore.collection('books').doc(bookId).get();
+        
+        if (!docSnapshot.exists) {
+          _log.warning('No book found for ID: $bookId in Firestore');
+          throw Exception('Book with ID $bookId not found in Firestore');
+        }
+        
+        final data = docSnapshot.data();
+        
+        if (data == null) {
+          _log.severe('Book document exists but data is null for ID: $bookId');
+          throw Exception('Book data is null in Firestore');
+        }
+        
+        // Cast Firestore data to the correct type
+        // Since we know data from Firestore is a Map<String, dynamic>
+        final Map<String, dynamic> bookData = data as Map<String, dynamic>;
+        final bookFromFirestoreMetadata = Book.fromMap(bookId, bookData);
+
+        // Try to load headings or chapters (volumes)
+        try {
+          _log.info('Loading volumes from Firestore for book ID: $bookId');
+          final volumesSnapshot = await _firestore
+              .collection('books')
+              .doc(bookId)
+              .collection('volumes')
+              .orderBy('sequence')
+              .get();
+
+          final firestoreVolumes = volumesSnapshot.docs
+              .map((doc) => Volume.fromMap(doc.id, doc.data()))
+              .toList();
+
+          // Cache each volume individually with a long TTL
+          for (final volume in firestoreVolumes) {
+            await _cacheService.cacheData(
+              key: '${CacheConstants.volumeKeyPrefix}${bookId}_${volume.id}',
+              data: volume.toMap(),
+              boxName: CacheConstants.volumesBoxName,
+              ttl: const Duration(days: 30),  // Keep for a month
+            );
+          }
+
+          // Create the complete book with all data
+          final completeBook = bookFromFirestoreMetadata.copyWith(
+              volumes: firestoreVolumes,
+              isFromCache: false // It's fresh from Firestore
+              );
+
+          // Cache the COMPLETE book data (including volumes) with a long TTL
+          _log.info('Caching complete book data (with volumes) for book ID: $bookId');
+          final bookDataMap = completeBook.toMap(); // Book.toMap() now correctly returns Map<String, dynamic>
+          await _cacheService.cacheData(
+            key: '${CacheConstants.bookKeyPrefix}$bookId',
+            data: bookDataMap,
+            boxName: CacheConstants.booksBoxName,
+            ttl: const Duration(days: 90),  // Extend to 90 days for better offline experience
+          );
+
+          _log.info('Successfully loaded and cached complete book: ${completeBook.title} from Firestore');
+          return completeBook;
+
+        } catch (innerE, stackTrace) {
+          _log.warning('Failed to load volumes/headings from Firestore for book ID: $bookId. Error: $innerE. Stack: $stackTrace');
+          // If loading volumes failed, cache only the metadata as a fallback
+          _log.info('Caching basic book data (metadata only) for book ID: $bookId due to volume load failure.');
+          await _cacheService.cacheData(
+            key: '${CacheConstants.bookKeyPrefix}$bookId',
+            data: data,
+            boxName: CacheConstants.booksBoxName,
+            ttl: const Duration(days: 30),
+          );
+          // Return book with metadata only, marked as not from cache
+          return bookFromFirestoreMetadata.copyWith(isFromCache: false);
+        }  
+      } catch (firestoreError) {
+        _log.severe('Firestore error: $firestoreError');
+        
+        // STEP 3: If Firestore fails but we have cache, return cache
+        if (cacheResult.hasData) {
+          _log.info('Firestore failed but returning cached book data as fallback');
+          return Book.fromMap(bookId, cacheResult.data!).copyWith(isFromCache: true);
+        }
+        
+        // If all else fails, rethrow to trigger the fallback book creation
+        rethrow;
+      }
+    } catch (e, stackTrace) {
+      _log.severe('Error fetching book data for ID $bookId: $e');
+      _log.severe('Stack trace: $stackTrace');
+      
+      // Return a fallback book object as last resort
+      return Book(
+        firestoreDocId: bookId,
+        title: 'Error Loading Book',
+        author: 'Unknown',
+        thumbnailUrl: '',
+        defaultLanguage: 'ur', // Set Urdu as default for consistency with app
+        description: 'کتاب لوڈ کرنے میں خرابی آگئی۔ براہ کرم دوبارہ کوشش کریں۔',
+        volumes: [],
+        status: 'error',
+      );
     }
+  }
+
+  // Helper method to refresh book data in background without blocking UI
+  Future<void> _refreshBookInBackground(String bookId) async {
+    // Ensuring this runs completely independently from the UI thread
+    // by pushing it to the end of the event queue
+    Future.microtask(() async {
+      try {
+        // Check network connectivity before attempting refresh
+        final isConnected = await _cacheService.isConnected();
+        if (!isConnected) {
+          _log.info('Skipping background refresh for book $bookId: device is offline');
+          return;
+        }
+        
+        // Add a deliberate delay to ensure UI has time to render first
+        // This prioritizes user experience over data freshness
+        await Future.delayed(const Duration(seconds: 2));
+        
+        _log.info('Background refreshing book data for ID: $bookId');
+        
+        // Get fresh data from Firestore
+        final docSnapshot = await _firestore.collection('books').doc(bookId).get();
+        if (!docSnapshot.exists) {
+          _log.warning('Book not found during background refresh: $bookId');
+          return;
+        }
+        
+        final data = docSnapshot.data();
+        if (data == null) {
+          _log.warning('Book data is null during background refresh: $bookId');
+          return;
+        }
+        
+        // Get volumes
+        final volumesSnapshot = await _firestore
+            .collection('books')
+            .doc(bookId)
+            .collection('volumes')
+            .orderBy('sequence')
+            .get();
+
+        final firestoreVolumes = volumesSnapshot.docs
+            .map((doc) => Volume.fromMap(doc.id, doc.data()))
+            .toList();
+        
+        // Cache the updated book data
+        final completeBook = Book.fromMap(bookId, data).copyWith(volumes: firestoreVolumes);
+        await _cacheService.cacheData(
+          key: '${CacheConstants.bookKeyPrefix}$bookId',
+          data: completeBook.toMap(),
+          boxName: CacheConstants.booksBoxName,
+          ttl: const Duration(days: 30),
+        );
+        
+        _log.info('Background refresh completed for book $bookId');
+      } catch (e) {
+        _log.warning('Background refresh failed for book $bookId: $e');
+      }
+    });
   }
 
   @override
@@ -50,9 +281,35 @@ class ReadingRepositoryImpl implements ReadingRepository {
         return [];
       }
       
-      _log.info('Querying top-level headings collection for book_id: $numericBookId');
+      // Try to get from cache first, but use a proper cache-first approach
+      final cacheKey = '${CacheConstants.bookKeyPrefix}${bookId}_headings';
+      final cacheResult = await _cacheService.getCachedData<List<dynamic>>(
+        key: cacheKey,
+        boxName: CacheConstants.headingsBoxName,
+      );
       
-      // Query the top-level headings collection where book_id equals the numeric ID
+      // If we have valid cache data, use it and refresh in background if needed
+      if (cacheResult.hasData && cacheResult.data != null && cacheResult.data!.isNotEmpty) {
+        _log.info('Retrieved headings for book $bookId from cache');
+        
+        // Start background refresh if device is online
+        _refreshHeadingsInBackground(bookId, numericBookId, cacheKey);
+        
+        // Convert the dynamic list back to headings
+        return cacheResult.data!.map<Heading>((item) => 
+          Heading.fromMap(item['id'].toString(), Map<String, dynamic>.from(item))
+        ).toList();
+      }
+      
+      // If no valid cache, check connectivity before trying network
+      final isOnline = await _cacheService.isConnected();
+      if (!isOnline) {
+        _log.warning('Device is offline and no cached headings available for book $bookId');
+        return []; // Return empty list when offline with no cache
+      }
+      
+      // Network fetch since cache missed
+      _log.info('Querying headings collection for book_id: $numericBookId');
       final headingsSnap = await _firestore
           .collection('headings')
           .where('book_id', isEqualTo: numericBookId)
@@ -62,17 +319,69 @@ class ReadingRepositoryImpl implements ReadingRepository {
       _log.info('Found ${headingsSnap.docs.length} headings for book ID: $bookId');
       
       if (headingsSnap.docs.isEmpty) {
-        _log.warning('No headings found for book ID: $bookId in the top-level headings collection');
+        _log.warning('No headings found for book ID: $bookId');
+        return [];
       }
       
-      return headingsSnap.docs
-          .map((doc) => Heading.fromMap(doc.id, doc.data()))
-          .toList();
+      // Convert to list of maps for caching
+      final headingsData = headingsSnap.docs.map((doc) => {
+        'id': doc.id,
+        ...doc.data(),
+      }).toList();
+      
+      // Cache the fetched data
+      await _cacheService.cacheData(
+        key: cacheKey,
+        data: headingsData,
+        boxName: CacheConstants.headingsBoxName,
+        ttl: const Duration(days: 7),
+      );
+      
+      // Convert the dynamic list to headings
+      return headingsData.map<Heading>((item) => 
+        Heading.fromMap(item['id'].toString(), Map<String, dynamic>.from(item))
+      ).toList();
     } catch (e) {
-       // Log error with more details
       _log.severe('Error fetching book headings for bookId $bookId: $e');
       return []; // Return empty list instead of rethrowing to avoid app crashes
     }
+  }
+  
+  // Helper method to refresh headings in background
+  Future<void> _refreshHeadingsInBackground(String bookId, int numericBookId, String cacheKey) async {
+    Future.delayed(Duration.zero, () async {
+      try {
+        final isConnected = await _cacheService.isConnected();
+        if (!isConnected) return;
+        
+        _log.info('Background refreshing headings for book ID: $bookId');
+        
+        final headingsSnap = await _firestore
+            .collection('headings')
+            .where('book_id', isEqualTo: numericBookId)
+            .orderBy('sequence', descending: false)
+            .get();
+        
+        if (headingsSnap.docs.isEmpty) return;
+        
+        final headingsData = headingsSnap.docs.map((doc) => {
+          'id': doc.id,
+          ...doc.data(),
+        }).toList();
+        
+        // Update cache with fresh data
+        await _cacheService.cacheData(
+          key: cacheKey,
+          data: headingsData,
+          boxName: CacheConstants.headingsBoxName,
+          ttl: const Duration(days: 7),
+        );
+        
+        _log.info('Background refresh completed for headings of book $bookId');
+      } catch (e) {
+        _log.warning('Background refresh failed for headings of book $bookId: $e');
+      }
+    });
   }
 
   @override
@@ -162,17 +471,13 @@ class ReadingRepositoryImpl implements ReadingRepository {
     String? language,
   }) async {
     try {
-      _log.info('Generating book summary');
-      final title = bookTitle ?? 'Unknown Book';
-      final authorName = author ?? 'Unknown Author';
-      
+      _log.info('Generating summary for book: ${bookTitle ?? "Unknown title"}');
       final summary = await geminiService.generateBookSummary(
-        title,
-        authorName,
+        bookTitle ?? 'Unknown Book',
+        author ?? 'Unknown Author',
         excerpt: text,
         language: language,
       );
-      
       return summary;
     } catch (e) {
       _log.severe('Error generating book summary: $e');
@@ -193,14 +498,12 @@ class ReadingRepositoryImpl implements ReadingRepository {
   }) async {
     try {
       _log.info('Getting book recommendations based on: ${recentBooks.join(", ")}');
-      final recommendations = await geminiService.getBookRecommendations(
+      return await geminiService.getBookRecommendations(
         recentBooks,
         preferredGenre: preferredGenre,
         preferredAuthors: preferredAuthors,
         readerProfile: readerProfile,
       );
-      _log.info('Got ${recommendations.length} recommendations');
-      return recommendations;
     } catch (e) {
       _log.severe('Error getting book recommendations: $e');
       return [];
@@ -308,203 +611,219 @@ class ReadingRepositoryImpl implements ReadingRepository {
     }
   }
 
-  @override
-  Future<dynamic> getHeadingById(String headingId) async {
-    _log.info('Fetching heading with ID: $headingId');
-    // Check cache first
-    if (_headingCache.containsKey(headingId)) {
-      _log.info('Returning cached heading for ID: $headingId');
-      return _headingCache[headingId];
+  bool isValidHeadingData(Map<String, dynamic> data) {
+    // Check if required fields exist and have correct types
+    if (!data.containsKey('title') || data['title'] == null) {
+      _log.warning('Heading missing title field or title is null');
+      return false;
+    }
+    
+    if (!data.containsKey('content')) {
+      _log.warning('Heading missing content field');
+      return false;
+    }
+    
+    // Check content field type and handle accordingly
+    if (data['content'] != null && data['content'] is! List && data['content'] is! String) {
+      _log.warning('Heading content has invalid type: ${data['content'].runtimeType}');
+      return false;
+    }
+    
+    // Check if 'sequence' field exists and is a number (important for ordering)
+    if (!data.containsKey('sequence') || data['sequence'] is! num) {
+      _log.warning('Heading missing or invalid sequence field');
+      // Not returning false, as it might still be displayable, but logging a warning.
     }
 
+    // Check if 'book_id' field exists (important for linking)
+    if (!data.containsKey('book_id')) {
+      _log.warning('Heading missing book_id field');
+      // Not returning false, as it might still be displayable if fetched by direct ID
+    }
+    return true;
+  }
+  
+  @override
+  Future<dynamic> getHeadingById(String headingId) async {
     try {
-      // Try both approaches: direct document ID lookup and field ID query
-      DocumentSnapshot? headingDoc;
+      _log.info('Fetching heading by ID: $headingId');
+      final docSnap = await _firestore.collection('headings').doc(headingId).get();
       
-      // First try direct document lookup by ID
-      headingDoc = await _firestore.collection('headings').doc(headingId).get();
-      
-      // If not found by document ID, try numeric ID field query
-      if (!headingDoc.exists) {
-        final numericId = int.tryParse(headingId);
-        if (numericId != null) {
-          _log.info('Heading not found by document ID, trying numeric id field: $numericId');
-          final querySnap = await _firestore
-              .collection('headings')
-              .where('id', isEqualTo: numericId)
-              .limit(1)
-              .get();
-              
-          if (querySnap.docs.isNotEmpty) {
-            headingDoc = querySnap.docs.first;
-          }
-        }
-      }
-      
-      // If still not found, return null
-      if (!headingDoc.exists) {
-        _log.warning('No heading found with ID: $headingId (tried both document ID and id field)');
+      if (!docSnap.exists || docSnap.data() == null) {
+        _log.warning('Heading not found for ID: $headingId');
         return null;
       }
       
-      final headingData = headingDoc.data() as Map<String, dynamic>;
-
-      if (!isValidHeadingData(headingData)) {
-        _log.warning('Invalid heading data for ID: $headingId. Data: $headingData');
-        return null; 
+      final data = docSnap.data()!;
+      if (!isValidHeadingData(data)) {
+        _log.warning('Invalid heading data for ID: $headingId');
+        return null;
       }
       
-      // Fetch the chapter associated with this heading to get the title
-      String? chapterTitle;
-      if (headingData['chapter_id'] != null) {
-        // For chapter lookup, handle both string and int IDs
-        final chapterId = headingData['chapter_id'];
-        final chapterIdString = chapterId.toString();
-        
-        DocumentSnapshot? chapterDocSnap;
-        // Try document ID first
-        chapterDocSnap = await _firestore.collection('chapters')
-            .doc(chapterIdString)
-            .get();
-        
-        // If not found by document ID, try numeric ID field
-        if (!chapterDocSnap.exists && chapterId is int) {
-          final querySnap = await _firestore
-              .collection('chapters')
-              .where('id', isEqualTo: chapterId)
-              .limit(1)
-              .get();
-              
-          if (querySnap.docs.isNotEmpty) {
-            chapterDocSnap = querySnap.docs.first;
-          }
-        }
-        
-        if (chapterDocSnap.exists && chapterDocSnap.data() != null) {
-          chapterTitle = (chapterDocSnap.data() as Map<String,dynamic>)['title'];
-        }
-      }
-      
-      // Create a heading object with the necessary data
-      final headingResult = {
-        'id': headingDoc.id, // Use the actual document ID from Firestore
-        'title': headingData['title'],
-        'content': headingData['content'] is List 
-            ? List<String>.from(headingData['content']) 
-            : [headingData['content']?.toString() ?? ''],
-        'chapterTitle': chapterTitle,
-        'language': headingData['language'] ?? 'en',
-        'subtitle': headingData['subtitle'], // Ensure subtitle is included
-      };
-
-      // Cache the result
-      _headingCache[headingId] = headingResult;
-      _log.info('Fetched and cached heading for ID: $headingId with ${headingResult['content'].length} content items');
-      return headingResult;
-
+      return Heading.fromMap(headingId, data);
     } catch (e, stackTrace) {
       _log.severe('Error fetching heading by ID: $e', e, stackTrace);
       return null; // Return null instead of throwing to avoid app crashes
     }
   }
 
-  // Test method to verify Firestore structure
+  Future<Map<String, dynamic>> getHeadingContent(String headingId, {String? bookId}) async {
+    try {
+      final String cacheKey = '${CacheConstants.headingContentKeyPrefix}$headingId';
+      
+      final CacheResult<Map<String, dynamic>>? cacheResult = 
+          await _cacheService.fetch<Map<String, dynamic>>(
+        key: cacheKey,
+        boxName: CacheConstants.contentBoxName,
+        networkFetch: () async {
+          _log.info('Fetching content for heading ID: $headingId from Firestore.');
+          final docSnap = await _firestore.collection('content').doc(headingId).get();
+
+          if (!docSnap.exists || docSnap.data() == null) {
+            _log.warning('Content not found for heading ID: $headingId in Firestore.');
+            throw Exception('Content for heading $headingId not found in Firestore.');
+          }
+          
+          return docSnap.data()!;
+        },
+        ttl: CacheConstants.bookCacheTtl, 
+      );
+    
+      final Map<String, dynamic>? contentData = cacheResult?.data;
+
+      if (contentData != null) {
+        // Log if from cache or network based on CacheResultSource
+        if (cacheResult?.source == CacheResultSource.cache) {
+          _log.info('Retrieved content for heading $headingId from cache');
+        } else if (cacheResult?.source == CacheResultSource.network) {
+          _log.info('Retrieved content for heading $headingId from network (and cached)');
+        }
+        return contentData;
+      } else {
+        // This case implies cacheResult was null, or cacheResult.data was null.
+        // _cacheService.fetch should ideally not return a null CacheResult if networkFetch succeeds.
+        // If networkFetch throws, _cacheService.fetch should rethrow or return a CacheResult with an error.
+        // For now, let's conform to CacheService.fetch expecting T or throwing.
+        _log.warning('Failed to fetch content for heading $headingId. CacheResult or its data was null.');
+        throw Exception('Failed to retrieve content for heading $headingId.');
+      }
+
+    } catch (e, stackTrace) {
+      _log.severe('Error fetching heading content for headingId $headingId: $e', e, stackTrace);
+      // Re-throw the original exception to allow higher-level error handling
+      // or return a specific error structure if preferred by the app's architecture.
+      rethrow; 
+    }
+  }
+  
+  @override
+  Future<Map<String, dynamic>> getHeadingFullContent(String headingId, {String? bookId}) async {
+    final rawContent = await getHeadingContent(headingId, bookId: bookId);
+    // Add the headingId to the returned content for ease of access
+    return {
+      'id': headingId,
+      ...rawContent,
+    };
+  }
+
+  @override
+  Future<List<String>> getDownloadedBookIds() async {
+    try {
+      return await _cacheService.getDownloadedBooks();
+    } catch (e) {
+      _log.warning('Error getting downloaded books: $e');
+      return [];
+    }
+  }
+
+  @override
+  Stream<Map<String, double>> getDownloadProgressStream() {
+    // Map the DownloadProgress events to the format expected by the UI
+    return _cacheService.downloadProgressStream.map((progress) {
+      return <String, double>{
+        progress.bookId: progress.progressPercentage
+      };
+    });
+  }
+
   @override
   Future<void> debugFirestoreStructure(String bookId) async {
+    _log.info('Debug Firestore structure method called for book ID: $bookId');
+    // Implementation simplified as we have moved to a cache-first approach
     try {
-      _log.info('--- DEBUGGING FIRESTORE STRUCTURE FOR BOOK ID: $bookId ---');
-      // Check top-level books collection
       final bookDoc = await _firestore.collection('books').doc(bookId).get();
       _log.info('Book document exists: ${bookDoc.exists}');
       
-      if (bookDoc.exists) {
-        _log.info('Book data: ${bookDoc.data()}');
-      }
-      
-      // Check if there's a nested headings subcollection
-      final nestedHeadingsSnap = await _firestore
-          .collection('books')
-          .doc(bookId)
-          .collection('headings')
-          .limit(1)
-          .get();
-      _log.info('Nested headings subcollection (under books/$bookId) has items: ${nestedHeadingsSnap.docs.isNotEmpty}');
-      
-      // Check top-level headings with book_id filter
       final numericBookId = int.tryParse(bookId);
       if (numericBookId != null) {
-        _log.info('Querying top-level /headings collection with book_id == $numericBookId');
-        final topLevelHeadingsSnap = await _firestore
+        final headingsSnap = await _firestore
             .collection('headings')
             .where('book_id', isEqualTo: numericBookId)
-            .orderBy('sequence')
-            .limit(10)
+            .limit(1)
             .get();
-        _log.info('Top-level /headings found: ${topLevelHeadingsSnap.docs.length}');
-        
-        for(var doc in topLevelHeadingsSnap.docs) {
-          _log.info('  Heading ID: ${doc.id}, Data: ${doc.data()}');
-        }
-      } else {
-         _log.warning('Book ID $bookId is not numeric, cannot query top-level headings by book_id.');
+        _log.info('Found ${headingsSnap.docs.length} headings in top-level collection');
       }
-
-      // Check top-level chapters with book_id filter
-      if (numericBookId != null) {
-        _log.info('Querying top-level /chapters collection with book_id == $numericBookId');
-        final topLevelChaptersSnap = await _firestore
-            .collection('chapters')
-            .where('book_id', isEqualTo: numericBookId)
-            .orderBy('sequence')
-            .limit(10)
-            .get();
-        _log.info('Top-level /chapters found: ${topLevelChaptersSnap.docs.length}');
-        
-        for(var doc in topLevelChaptersSnap.docs) {
-          _log.info('  Chapter ID: ${doc.id}, Data: ${doc.data()}');
-        }
-      } else {
-        _log.warning('Book ID $bookId is not numeric, cannot query top-level chapters by book_id.');
-      }
-      _log.info('--- END DEBUGGING FIRESTORE STRUCTURE ---');
-
     } catch (e) {
       _log.severe('Debug error: $e');
     }
   }
 
-  // Robust Data Validation Method
-  bool isValidHeadingData(Map<String, dynamic> data) {
-    // Check if required fields exist and have correct types
-    if (!data.containsKey('title') || data['title'] == null) {
-      _log.warning('Heading missing title field or title is null. Data: $data');
+  @override
+  Future<bool> downloadBookForOfflineReading(String bookId) async {
+    try {
+      _log.info('Starting to download book $bookId for offline reading');
+      
+      // Use the bulk download feature of CacheService
+      await _cacheService.downloadBook(
+        bookId: bookId,
+        fetchBookData: () async {
+          final docSnap = await _firestore.collection('books').doc(bookId).get();
+          if (!docSnap.exists || docSnap.data() == null) {
+            throw Exception('Book with ID $bookId not found in Firestore.');
+          }
+          return docSnap.data()!;
+        },
+        fetchHeadings: () async {
+          final numericBookId = int.tryParse(bookId);
+          if (numericBookId == null) {
+            throw Exception('Invalid book ID format: $bookId');
+          }
+          
+          final headingsSnap = await _firestore
+              .collection('headings')
+              .where('book_id', isEqualTo: numericBookId)
+              .orderBy('sequence', descending: false)
+              .get();
+          
+          return headingsSnap.docs.map((doc) => {
+            'id': doc.id,
+            ...doc.data(),
+          }).toList();
+        },
+        fetchHeadingContent: (String headingId) async {
+          final docSnap = await _firestore.collection('content').doc(headingId).get();
+          if (!docSnap.exists || docSnap.data() == null) {
+            throw Exception('Content for heading $headingId not found.');
+          }
+          return docSnap.data()!;
+        },
+      );
+      
+      return true;
+    } catch (e) {
+      _log.severe('Error downloading book $bookId: $e');
       return false;
     }
-    
-    if (!data.containsKey('content')) {
-      _log.warning('Heading missing content field. Data: $data');
-      return false;
-    }
-    
-    // Check content field type and handle accordingly
-    // Allow content to be null or empty, but it must exist
-    if (data['content'] != null && data['content'] is! List && data['content'] is! String) {
-      _log.warning('Heading content is not null, List, or String: ${data['content'].runtimeType}. Data: $data');
-      return false;
-    }
-    
-    // Check if 'sequence' field exists and is a number (important for ordering)
-    if (!data.containsKey('sequence') || data['sequence'] is! num) {
-        _log.warning('Heading missing or invalid sequence field. Data: $data');
-        // Not returning false, as it might still be displayable, but logging a warning.
-    }
+  }
 
-    // Check if 'book_id' field exists (important for linking)
-     if (!data.containsKey('book_id')) {
-        _log.warning('Heading missing book_id field. Data: $data');
-        // Not returning false, as it might still be displayable if fetched by direct ID, but logging.
+  @override
+  Future<bool> isBookAvailableOffline(String bookId) async {
+    try {
+      return await _cacheService.isBookDownloaded(bookId);
+    } catch (e) {
+      _log.warning('Error checking offline availability for book $bookId: $e');
+      return false;
     }
-    return true;
   }
 
   // --- Bookmark Methods (Local Storage Implementation) ---
@@ -598,18 +917,17 @@ class ReadingRepositoryImpl implements ReadingRepository {
       return [];
     }
   }
+
 }
 
 // Define the provider for ReadingRepository
-final readingRepositoryProvider = Provider<ReadingRepository>((ref) {
-  final geminiService = ref.watch(geminiServiceProvider); // Get GeminiService via its provider
-  // Create and return an instance of ReadingRepositoryImpl
-  final repository = ReadingRepositoryImpl(
+final readingRepositoryProvider = FutureProvider<ReadingRepository>((ref) async {
+  final geminiService = ref.watch(geminiServiceProvider);
+  // Await the CacheService from its FutureProvider
+  final cacheService = await ref.watch(cacheServiceProvider.future);
+  
+  return ReadingRepositoryImpl(
     geminiService: geminiService,
+    cacheService: cacheService,
   );
-  
-  // Example: Call debugFirestoreStructure for a specific book ID when provider is first read
-  // repository.debugFirestoreStructure("101"); // Replace "101" with a known book ID
-  
-  return repository;
-}); 
+});

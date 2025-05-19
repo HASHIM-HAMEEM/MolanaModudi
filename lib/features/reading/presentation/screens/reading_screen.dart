@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:logging/logging.dart';
 import 'dart:async'; // Import for Completer
+import 'package:google_fonts/google_fonts.dart';
 
 import 'package:modudi/features/settings/presentation/providers/settings_provider.dart';
 // Import widgets as they are created
@@ -23,6 +24,7 @@ import '../widgets/ai_tools_panel.dart';
 import 'package:modudi/core/themes/app_color.dart'; // Import app colors
 import 'package:modudi/core/extensions/string_extensions.dart'; // Import string extensions
 import 'package:modudi/features/books/data/models/book_models.dart'; // Ensure Heading model is imported
+import 'package:modudi/features/reading/data/repositories/reading_repository_impl.dart'; // Import for readingRepositoryProvider
 
 class ReadingScreen extends ConsumerStatefulWidget {
   final String bookId; // Add bookId field
@@ -66,6 +68,9 @@ class _ReadingScreenState extends ConsumerState<ReadingScreen> {
   final bool _isBookmarked = false;
   String _chapterSearchQuery = ''; // Added for chapter search
 
+  String? _chapterId;
+  String? _headingId;
+
   @override
   void initState() {
     super.initState();
@@ -81,6 +86,11 @@ class _ReadingScreenState extends ConsumerState<ReadingScreen> {
         });
       }
     });
+
+    // Process query parameters for chapter and heading navigation
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _processNavigationParameters();
+    });
   }
   
   void _loadSettingsFromProvider() {
@@ -89,6 +99,200 @@ class _ReadingScreenState extends ConsumerState<ReadingScreen> {
     // Load other settings as needed
     // _lineSpacing = settings.lineSpacing;
     // _fontType = settings.fontType;
+  }
+  
+  // Process navigation parameters from URL query parameters
+  void _processNavigationParameters() {
+    try {
+      final routerState = GoRouter.of(context).routeInformationProvider.value;
+      final uri = Uri.parse(routerState.uri.toString());
+      
+      // Extract query parameters
+      _chapterId = uri.queryParameters['chapterId'];
+      _headingId = uri.queryParameters['headingId'];
+      
+      _log.info('Processing navigation parameters: chapterId=$_chapterId, headingId=$_headingId');
+      
+      if (_chapterId != null) {
+        // Wait for content to load first
+        ref.listenManual(
+          readingNotifierProvider(widget.bookId), 
+          (previous, current) {
+            // Only process once content is loaded successfully
+            if (current.status == ReadingStatus.displayingText) {
+              _navigateToSpecificContent(_chapterId!, _headingId);
+            }
+          },
+        );
+      }
+    } catch (e) {
+      _log.severe('Error processing navigation parameters: $e');
+    }
+  }
+  
+  // Navigate to specific content by chapter ID and heading ID
+  void _navigateToSpecificContent(String chapterId, String? headingId) {
+    _log.info('Navigating to specific content: chapterId=$chapterId, headingId=$headingId');
+    
+    try {
+      // Get current reading state and notifier
+      final state = ref.read(readingNotifierProvider(widget.bookId));
+      final notifier = ref.read(readingNotifierProvider(widget.bookId).notifier);
+      
+      // Use a longer delay to ensure content is fully loaded before trying to navigate
+      Future.delayed(const Duration(milliseconds: 800), () {
+        _log.info('Ready to navigate to chapter ID: $chapterId. Available chapters: ${state.mainChapterKeys.length}');
+        
+        // First approach - direct match against mainChapterKeys list
+        int directIndex = -1;
+        for (int i = 0; i < state.mainChapterKeys.length; i++) {
+          String key = state.mainChapterKeys[i];
+          _log.info('Checking chapter key at index $i: $key against target ID: $chapterId');
+          if (key == chapterId) {
+            directIndex = i;
+            break;
+          }
+        }
+        
+        if (directIndex >= 0) {
+          _log.info('Found direct match for chapter ID: $chapterId at index: $directIndex');
+          notifier.navigateToLogicalChapter(directIndex);
+          return;
+        }
+        
+        // Second approach - Check all headings to find matching chapter or ID
+        if (state.headings != null && state.headings!.isNotEmpty) {
+          _log.info('Checking ${state.headings!.length} headings for chapter ID: $chapterId');
+          
+          // Build a mapping of chapter IDs to their logical index position
+          Map<String, int> chapterIndexMap = {};
+          for (int i = 0; i < state.headings!.length; i++) {
+            final heading = state.headings![i];
+            if (heading is Heading) {
+              // Store maps for both numeric IDs and string IDs
+              if (heading.chapterId != null) {
+                chapterIndexMap[heading.chapterId.toString()] = chapterIndexMap.length;
+              }
+              chapterIndexMap[heading.id.toString()] = chapterIndexMap.length;
+              if (heading.firestoreDocId.isNotEmpty) {
+                chapterIndexMap[heading.firestoreDocId] = chapterIndexMap.length;
+              }
+            }
+          }
+          
+          _log.info('Built chapter mapping with ${chapterIndexMap.length} entries');
+          _log.info('Checking if ID: $chapterId exists in mapping');
+          
+          if (chapterIndexMap.containsKey(chapterId)) {
+            int mappedIndex = chapterIndexMap[chapterId]!;
+            _log.info('Found match for chapter ID: $chapterId at mapped index: $mappedIndex');
+            if (mappedIndex >= 0 && mappedIndex < state.mainChapterKeys.length) {
+              notifier.navigateToLogicalChapter(mappedIndex);
+              return;
+            }
+          }
+        }
+        
+        // Third approach - try numeric approach if the ID is numeric
+        if (int.tryParse(chapterId) != null) {
+          int numericId = int.parse(chapterId);
+          _log.info('Trying numeric ID approach for chapter ID: $numericId');
+          
+          // Direct use as index if in valid range
+          if (numericId >= 0 && numericId < state.mainChapterKeys.length) {
+            _log.info('Using numeric ID directly as index: $numericId');
+            notifier.navigateToLogicalChapter(numericId);
+            return;
+          }
+          
+          // If that doesn't work, search for the ID in chapter metadata
+          List<PlaceholderChapter> chapters = _extractChapters(state);
+          for (int i = 0; i < chapters.length; i++) {
+            if (chapters[i].id.toString() == chapterId || 
+                chapters[i].id == numericId) {
+              _log.info('Found chapter with matching numeric ID at index: $i');
+              if (i >= 0 && i < state.mainChapterKeys.length) {
+                notifier.navigateToLogicalChapter(i);
+                return;
+              }
+            }
+          }
+        }
+        
+        // Last resort - try the old _findLogicalChapterIndex method
+        int? logicalIndex = _findLogicalChapterIndex(chapterId);
+        if (logicalIndex != null) {
+          _log.info('Found chapter using _findLogicalChapterIndex: $logicalIndex');
+          notifier.navigateToLogicalChapter(logicalIndex);
+          return;
+        }
+        
+        _log.warning('All navigation attempts failed for chapter ID: $chapterId');
+      });
+    } catch (e) {
+      _log.severe('Error navigating to specific content: $e', e);
+    }
+  }
+  
+  // Find the logical chapter index from chapter ID
+  int? _findLogicalChapterIndex(String chapterId) {
+    try {
+      final state = ref.read(readingNotifierProvider(widget.bookId));
+      
+      // First check against mainChapterKeys - this is the primary index for chapter navigation
+      if (state.mainChapterKeys.isNotEmpty) {
+        _log.info('Searching for chapter ID: $chapterId in mainChapterKeys');
+        for (int i = 0; i < state.mainChapterKeys.length; i++) {
+          final key = state.mainChapterKeys[i];
+          if (key == chapterId) {
+            _log.info('Found chapter ID: $chapterId at index: $i');
+            return i;
+          }
+        }
+      }
+      
+      // Next check against any generated chapters if available
+      if (state.aiExtractedChapters != null) {
+        for (int i = 0; i < state.aiExtractedChapters!.length; i++) {
+          final chapter = state.aiExtractedChapters![i];
+          if (chapter['id']?.toString() == chapterId) {
+            return i;
+          }
+        }
+      }
+      
+      // If not found, check against headings if available
+      if (state.headings != null && state.headings!.isNotEmpty) {
+        // Create a mapping of chapter IDs to their index position
+        Map<String, int> chapterIndexMap = {};
+        for (var heading in state.headings!) {
+          String key = heading.chapterId?.toString() ?? heading.volumeId?.toString() ?? "default_chapter";
+          if (!chapterIndexMap.containsKey(key)) {
+            chapterIndexMap[key] = chapterIndexMap.length;
+          }
+        }
+        
+        // Check if our chapterId appears in this mapping
+        if (chapterIndexMap.containsKey(chapterId)) {
+          return chapterIndexMap[chapterId];
+        }
+        
+        // Also check headings' IDs directly
+        for (var heading in state.headings!) {
+          if (heading.firestoreDocId == chapterId) {
+            String key = heading.chapterId?.toString() ?? heading.volumeId?.toString() ?? "default_chapter";
+            return chapterIndexMap[key];
+          }
+        }
+      }
+      
+      // If we get here, we couldn't find the chapter
+      _log.warning('Could not find chapter with ID: $chapterId');
+      return null;
+    } catch (e) {
+      _log.severe('Error finding logical chapter index: $e');
+      return null;
+    }
   }
 
   @override
@@ -279,7 +483,7 @@ class _ReadingScreenState extends ConsumerState<ReadingScreen> {
       ),
     );
   }
-
+  
   String _getFontFamily(String language) {
     // Use the extension to get the preferred font family
     return language.preferredFontFamily;
@@ -333,88 +537,199 @@ class _ReadingScreenState extends ConsumerState<ReadingScreen> {
             ),
             title: Text(
               readingState.bookTitle ?? 'Reading',
+              style: GoogleFonts.playfairDisplay(
+                fontWeight: FontWeight.w600,
+                fontSize: 22,
+                color: colors.onSurface,
+              ),
               overflow: TextOverflow.ellipsis,
             ),
-                centerTitle: true,
+            centerTitle: true,
             actions: [
-                  Builder(builder: (context) {
-                    // Determine the current chapter and its first heading
-                    Heading? firstHeadingOnPage;
-                    String? currentChapterKey;
-                    String? currentChapterTitleForAppBar;
-                    bool canToggleAppBarBookmark = false;
+              Builder(builder: (context) {
+                // Determine the current chapter and its first heading
+                Heading? firstHeadingOnPage;
+                String? currentChapterKey;
+                String? currentChapterTitleForAppBar;
+                bool canToggleAppBarBookmark = false;
 
-                    if (readingState.status == ReadingStatus.displayingText && readingState.headings != null && readingState.headings!.isNotEmpty) {
-                      Map<String, List<Heading>> groupedHeadings = {};
-                      List<String> logicalChapterKeys = [];
-                      for (var heading in readingState.headings!) {
-                        String chapterKey = heading.chapterId?.toString() ?? heading.volumeId?.toString() ?? "default_chapter";
-                        if (!groupedHeadings.containsKey(chapterKey)) {
-                          logicalChapterKeys.add(chapterKey);
-                        }
-                        (groupedHeadings[chapterKey] ??= []).add(heading);
-                      }
-
-                      if (logicalChapterKeys.isNotEmpty && readingState.currentChapter >= 0 && readingState.currentChapter < logicalChapterKeys.length) {
-                        currentChapterKey = logicalChapterKeys[readingState.currentChapter];
-                        final headingsForCurrentPage = groupedHeadings[currentChapterKey];
-                        if (headingsForCurrentPage != null && headingsForCurrentPage.isNotEmpty) {
-                          firstHeadingOnPage = headingsForCurrentPage.first;
-                          canToggleAppBarBookmark = firstHeadingOnPage.firestoreDocId != null;
-
-                          // Try to get a title for this chapter
-                          final List<PlaceholderChapter> allMainChapters = _extractChapters(readingState);
-                          final mainChapterDetails = allMainChapters.firstWhere(
-                            (ch) => ch.id == currentChapterKey,
-                            orElse: () => PlaceholderChapter(id: currentChapterKey!, title: 'Chapter', pageStart: 0)
-                          );
-                          currentChapterTitleForAppBar = mainChapterDetails.title;
-                        }
-                      }
+                if (readingState.status == ReadingStatus.displayingText && readingState.headings != null && readingState.headings!.isNotEmpty) {
+                  Map<String, List<Heading>> groupedHeadings = {};
+                  List<String> logicalChapterKeys = [];
+                  for (var heading in readingState.headings!) {
+                    String chapterKey = heading.chapterId?.toString() ?? heading.volumeId?.toString() ?? "default_chapter";
+                    if (!groupedHeadings.containsKey(chapterKey)) {
+                      logicalChapterKeys.add(chapterKey);
                     }
+                    (groupedHeadings[chapterKey] ??= []).add(heading);
+                  }
 
-                    final bool isFirstHeadingBookmarked = firstHeadingOnPage?.firestoreDocId != null &&
-                        readingState.bookmarks.any((b) => b.headingId == firstHeadingOnPage!.firestoreDocId);
-
-                    return IconButton(
-                      icon: Icon(
-                        isFirstHeadingBookmarked ? Icons.bookmark : Icons.bookmark_border,
-                        color: canToggleAppBarBookmark ? colors.primary : colors.onSurface.withOpacity(0.5),
-                      ),
-                      onPressed: canToggleAppBarBookmark && firstHeadingOnPage != null && currentChapterKey != null && currentChapterTitleForAppBar != null
-                          ? () {
-                              ref.read(readingNotifierProvider(widget.bookId).notifier).toggleBookmark(
-                                    firstHeadingOnPage!,
-                                    currentChapterKey!,
-                                    currentChapterTitleForAppBar!,
+                  if (logicalChapterKeys.isNotEmpty && readingState.currentChapter >= 0 && readingState.currentChapter < logicalChapterKeys.length) {
+                    currentChapterKey = logicalChapterKeys[readingState.currentChapter];
+                    currentChapterTitleForAppBar = "Chapter ${readingState.currentChapter + 1}";
+                    final headingsForCurrentPage = groupedHeadings[currentChapterKey];
+                    if (headingsForCurrentPage != null && headingsForCurrentPage.isNotEmpty) {
+                      firstHeadingOnPage = headingsForCurrentPage.first;
+                      canToggleAppBarBookmark = firstHeadingOnPage.firestoreDocId != null;
+                    }
+                  }
+                }
+                
+                return FutureBuilder<bool>(
+                  future: Future.value(true),
+                  builder: (context, snapshot) {
+                    if (snapshot.connectionState == ConnectionState.done) {
+                      return IconButton(
+                        icon: Icon(
+                          firstHeadingOnPage?.firestoreDocId != null &&
+                              readingState.bookmarks.any((b) => b.headingId == firstHeadingOnPage?.firestoreDocId)
+                              ? Icons.bookmark 
+                              : Icons.bookmark_border,
+                          color: canToggleAppBarBookmark ? colors.primary : colors.onSurface.withOpacity(0.5),
+                        ),
+                        onPressed: canToggleAppBarBookmark && firstHeadingOnPage != null && currentChapterKey != null && currentChapterTitleForAppBar != null
+                            ? () {
+                                if (firstHeadingOnPage != null && currentChapterKey != null && currentChapterTitleForAppBar != null) {
+                                  ref.read(readingNotifierProvider(widget.bookId).notifier).toggleBookmark(
+                                    firstHeadingOnPage,
+                                    currentChapterKey,
+                                    currentChapterTitleForAppBar,
                                   );
-                            }
-                          : null, // Disable if no valid heading to bookmark
-                    );
-                  }),
-              IconButton(
-                    icon: Icon(Icons.menu_book_outlined, color: colors.onSurface), // Chapters/Library
-                    onPressed: _toggleLibraryPanel,
+                                }
+                              }
+                            : null, // Disable if no valid heading to bookmark
+                      );
+                    } else {
+                      return const SizedBox.shrink();
+                    }
+                  },
+                );
+              }),
+              Builder(builder: (context) {
+                // Determine the current chapter and its first heading
+                Heading? firstHeadingOnPage;
+                String? currentChapterKey;
+                String? currentChapterTitleForAppBar;
+                bool canToggleAppBarBookmark = false;
+
+                if (readingState.status == ReadingStatus.displayingText && readingState.headings != null && readingState.headings!.isNotEmpty) {
+                  Map<String, List<Heading>> groupedHeadings = {};
+                  List<String> logicalChapterKeys = [];
+                  for (var heading in readingState.headings!) {
+                    String chapterKey = heading.chapterId?.toString() ?? heading.volumeId?.toString() ?? "default_chapter";
+                    if (!groupedHeadings.containsKey(chapterKey)) {
+                      logicalChapterKeys.add(chapterKey);
+                    }
+                    (groupedHeadings[chapterKey] ??= []).add(heading);
+                  }
+
+                  if (logicalChapterKeys.isNotEmpty && readingState.currentChapter >= 0 && readingState.currentChapter < logicalChapterKeys.length) {
+                    currentChapterKey = logicalChapterKeys[readingState.currentChapter];
+                    final headingsForCurrentPage = groupedHeadings[currentChapterKey];
+                    if (headingsForCurrentPage != null && headingsForCurrentPage.isNotEmpty) {
+                      firstHeadingOnPage = headingsForCurrentPage.first;
+                      canToggleAppBarBookmark = firstHeadingOnPage.firestoreDocId != null;
+
+                      // Try to get a title for this chapter
+                      final List<PlaceholderChapter> allMainChapters = _extractChapters(readingState);
+                      final mainChapterDetails = allMainChapters.firstWhere(
+                        (ch) => ch.id == currentChapterKey,
+                        orElse: () => PlaceholderChapter(id: currentChapterKey!, title: 'Chapter', pageStart: 0)
+                      );
+                      currentChapterTitleForAppBar = mainChapterDetails.title;
+                    }
+                  }
+                }
+
+                final bool isFirstHeadingBookmarked = firstHeadingOnPage?.firestoreDocId != null &&
+                    readingState.bookmarks.any((b) => b.headingId == firstHeadingOnPage?.firestoreDocId);
+
+                return IconButton(
+                  icon: Icon(
+                    isFirstHeadingBookmarked ? Icons.bookmark : Icons.bookmark_border,
+                    color: canToggleAppBarBookmark ? colors.primary : colors.onSurface.withOpacity(0.5),
                   ),
-                  PopupMenuButton<String>(
-                    icon: Icon(Icons.more_vert, color: colors.onSurface),
-                    onSelected: (value) {
-                      if (value == 'settings') {
-                        _toggleSettingsPanel();
-                      } else if (value == 'ai_tools') {
-                        _toggleAiToolsPanel();
-                      }
-                    },
-                    itemBuilder: (BuildContext context) => <PopupMenuEntry<String>>[
-                      const PopupMenuItem<String>(
-                        value: 'settings',
-                        child: ListTile(leading: Icon(Icons.settings_outlined), title: Text('Settings')),
-                      ),
-                      const PopupMenuItem<String>(
-                        value: 'ai_tools',
-                        child: ListTile(leading: Icon(Icons.psychology_outlined), title: Text('AI Tools')),
-                      ),
-                    ],
+                  onPressed: canToggleAppBarBookmark && firstHeadingOnPage != null && currentChapterKey != null && currentChapterTitleForAppBar != null
+                      ? () {
+                          if (firstHeadingOnPage != null && currentChapterKey != null && currentChapterTitleForAppBar != null) {
+                            ref.read(readingNotifierProvider(widget.bookId).notifier).toggleBookmark(
+                                  firstHeadingOnPage,
+                                  currentChapterKey,
+                                  currentChapterTitleForAppBar,
+                                );
+                          }
+                        }
+                      : null, // Disable if no valid heading to bookmark
+                );
+              }),
+              IconButton(
+                icon: Icon(Icons.menu_book_outlined, color: colors.onSurface), // Chapters/Library
+                onPressed: _toggleLibraryPanel,
+              ),
+              PopupMenuButton<String>(
+                icon: Icon(Icons.more_vert, color: colors.onSurface),
+                onSelected: (value) {
+                  if (value == 'settings') {
+                    _toggleSettingsPanel();
+                  } else if (value == 'ai_tools') {
+                    _toggleAiToolsPanel();
+                  } else if (value == 'download') {
+                    // Download book for offline reading using AsyncValue pattern
+                    final repositoryAsync = ref.read(readingRepositoryProvider);
+                    
+                    // Use proper AsyncValue.when pattern
+                    repositoryAsync.when(
+                      data: (repository) {
+                        repository.downloadBookForOfflineReading(widget.bookId).then((success) {
+                          if (mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text(success 
+                                  ? 'Book downloaded for offline reading' 
+                                  : 'Failed to download book'),
+                                duration: const Duration(seconds: 2),
+                              ),
+                            );
+                          }
+                        });
+                      },
+                      loading: () {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text('Repository is initializing, please try again in a moment'),
+                            duration: Duration(seconds: 2),
+                          ),
+                        );
+                      },
+                      error: (error, stack) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text('Error: Unable to access download service'),
+                            duration: const Duration(seconds: 2),
+                            backgroundColor: Colors.red,
+                          ),
+                        );
+                      },
+                    );
+                  }
+                },
+                itemBuilder: (BuildContext context) => <PopupMenuEntry<String>>[
+                  const PopupMenuItem<String>(
+                    value: 'settings',
+                    child: ListTile(leading: Icon(Icons.settings_outlined), title: Text('Settings')),
+                  ),
+                  const PopupMenuItem<String>(
+                    value: 'ai_tools',
+                    child: ListTile(leading: Icon(Icons.psychology_outlined), title: Text('AI Tools')),
+                  ),
+                  PopupMenuItem<String>(
+                    value: 'download',
+                    child: ListTile(
+                      leading: Icon(Icons.cloud_download_outlined), 
+                      title: Text('Download for offline')
+                    ),
+                  ),
+                ],
               ),
             ],
           )
@@ -424,18 +739,18 @@ class _ReadingScreenState extends ConsumerState<ReadingScreen> {
           children: [
             GestureDetector(
               behavior: HitTestBehavior.translucent,
-                onTap: _toggleHeaderFooter, // Toggle AppBar visibility on tap
-                child: _buildReadingContent(readingState, context, colors),
-              ),
+              onTap: _toggleHeaderFooter, // Toggle AppBar visibility on tap
+              child: _buildReadingContent(readingState, context, Theme.of(context).colorScheme),
+            ),
             // Settings panel with smooth animation
             AnimatedPositioned(
               duration: const Duration(milliseconds: 300),
               curve: Curves.easeInOut,
-              right: _showSettingsPanel ? 0 : -size.width,
+              right: _showSettingsPanel ? 0 : -MediaQuery.of(context).size.width,
               top: 0,
               bottom: 0,
-                width: size.width * 0.85, // Keep panel size reasonable
-                child: _buildSettingsPanel(theme), // Pass app theme
+              width: MediaQuery.of(context).size.width * 0.85, // Keep panel size reasonable
+              child: _buildSettingsPanel(Theme.of(context)), // Pass app theme
             ),
             // Chapters panel with smooth animation
             AnimatedPositioned(
@@ -580,17 +895,15 @@ class _ReadingScreenState extends ConsumerState<ReadingScreen> {
     // Get all main chapter details for titles
     final List<PlaceholderChapter> allMainChapters = _extractChapters(state);
 
-    // For RTL swipe (Urdu book style), we reverse the list for PageView display
-    // PageView itself will be LTR, but items are [Ch3, Ch2, Ch1]. Initial page will point to Ch1.
-    List<String> displayedChapterKeys = logicalChapterKeys.reversed.toList();
+    // We now use the logical order directly, no more reversed list
+    // This ensures consistency between chapter selection and display
+    List<String> displayedChapterKeys = logicalChapterKeys.toList();
     int N = displayedChapterKeys.length;
 
-    int initialLogicalIndex = state.currentChapter; // Assumed to be 0 for the first logical chapter
-    int initialPageViewIndex = 0;
-    if (N > 0) {
-      initialPageViewIndex = (N - 1) - initialLogicalIndex;
-      initialPageViewIndex = initialPageViewIndex.clamp(0, N - 1); // Ensure it's within bounds
-    }
+    // Calculate initialPageViewIndex to match currentChapter
+    // We used to display chapters in reverse order, but now we want to show them
+    // in the same order as they appear in the logical index for consistency
+    int initialPageViewIndex = state.currentChapter.clamp(0, N - 1); // Ensure it's within bounds
 
     final PageController pageController = PageController(initialPage: initialPageViewIndex);
 
@@ -598,7 +911,7 @@ class _ReadingScreenState extends ConsumerState<ReadingScreen> {
       if (pageController.page != null && N > 0) {
         int currentRawPvIndex = pageController.page!.round();
         if (currentRawPvIndex >=0 && currentRawPvIndex < N) {
-          int currentLogicalPageIndex = (N - 1) - currentRawPvIndex;
+          int currentLogicalPageIndex = currentRawPvIndex; // Direct mapping instead of reversed
           _log.info(
               "PageController scroll: PageView Index $currentRawPvIndex, Logical Index: $currentLogicalPageIndex. State's logical chapter: ${state.currentChapter}");
         } else {
@@ -653,7 +966,7 @@ class _ReadingScreenState extends ConsumerState<ReadingScreen> {
         itemCount: N, // Use count of displayed (reversed) keys
         onPageChanged: (newPageViewIndex) {
           if (N > 0) {
-            int newLogicalPageIndex = (N - 1) - newPageViewIndex;
+            int newLogicalPageIndex = newPageViewIndex; // Direct mapping instead of reversed
             _log.info(
                 "PageView changed to PageView Index: $newPageViewIndex, Logical Index: $newLogicalPageIndex. Chapter Key: ${displayedChapterKeys[newPageViewIndex]}");
             ref.read(readingNotifierProvider(widget.bookId).notifier)

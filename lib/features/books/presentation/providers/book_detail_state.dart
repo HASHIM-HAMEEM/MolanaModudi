@@ -31,10 +31,11 @@ class BookDetailState extends Equatable {
     List<Map<String, dynamic>>? aiRecommendations,
     AiFeatureStatus? aiDetailsStatus,
     bool clearError = false,
+    bool clearBookDetail = false,
   }) {
     return BookDetailState(
       status: status ?? this.status,
-      bookDetail: bookDetail ?? this.bookDetail,
+      bookDetail: clearBookDetail ? null : bookDetail ?? this.bookDetail,
       errorMessage: clearError ? null : errorMessage ?? this.errorMessage,
       aiSummaryData: aiSummaryData ?? this.aiSummaryData,
       aiRecommendations: aiRecommendations ?? this.aiRecommendations,

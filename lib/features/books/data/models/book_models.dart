@@ -320,11 +320,20 @@ class Book {
       'updated_at': updatedAt,
       'languages': languages,
       'book_translations': bookTranslations,
-      'language_code': languageCode, // Added languageCode
-      'type': type, // Added type
+      'language_code': languageCode,
+      'type': type,
+      // Properly include headings and volumes for complete caching
+      'headings': headings?.map((h) => h.toMap()).toList(),
+      'volumes': volumes?.map((v) => v.toMap()).toList(),
+      'is_from_cache': isFromCache, // Save cache status too
     };
+    
+    // Add any additional fields
     map.addAll(additionalFields);
+    
+    // Remove null values to optimize storage
     map.removeWhere((key, value) => value == null);
+    
     return map;
   }
 

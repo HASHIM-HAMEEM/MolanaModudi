@@ -22,10 +22,10 @@ final videoProviderInstance = Provider<VideoProvider>((ref) {
 });
 
 /// Provider for SearchDataSource
-final searchDataSourceProvider = Provider<SearchDataSource>((ref) {
+final searchDataSourceProvider = FutureProvider<SearchDataSource>((ref) async {
   final prefs = ref.watch(sharedPreferencesProvider);
-  final bookRepository = ref.watch(booksRepositoryProvider);
-  final videoProvider = ref.watch(videoProviderInstance);
+  final bookRepository = await ref.watch(booksRepositoryProvider.future);
+  final videoProvider = ref.watch(videoProviderInstance); 
   final biographyRepository = ref.watch(biographyRepositoryProvider);
   final geminiService = ref.watch(geminiServiceProvider);
   
@@ -39,13 +39,13 @@ final searchDataSourceProvider = Provider<SearchDataSource>((ref) {
 });
 
 /// Provider for SearchRepository
-final searchRepositoryProvider = Provider<SearchRepository>((ref) {
-  final dataSource = ref.watch(searchDataSourceProvider);
+final searchRepositoryProvider = FutureProvider<SearchRepository>((ref) async {
+  final dataSource = await ref.watch(searchDataSourceProvider.future);
   return SearchRepositoryImpl(dataSource);
 });
 
 /// Provider for SearchUseCase
-final searchUseCaseProvider = Provider<SearchUseCase>((ref) {
-  final repository = ref.watch(searchRepositoryProvider);
+final searchUseCaseProvider = FutureProvider<SearchUseCase>((ref) async {
+  final repository = await ref.watch(searchRepositoryProvider.future);
   return SearchUseCase(repository);
 });

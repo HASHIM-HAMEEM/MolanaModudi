@@ -11,6 +11,18 @@ class VideoModel extends VideoEntity {
     super.url,
   });
   
+  // Factory constructor to parse data from Firestore
+  factory VideoModel.fromMap(String id, Map<String, dynamic> data) {
+    return VideoModel(
+      id: id,
+      title: data['title'] as String,
+      thumbnailUrl: data['thumbnailUrl'] as String?,
+      duration: data['duration'] as String?,
+      source: data['source'] as String?,
+      url: data['url'] as String?,
+    );
+  }
+  
   // Factory constructor to parse data from API
   factory VideoModel.fromJson(Map<String, dynamic> json) {
     final String identifier = json['identifier'] as String? ?? '';

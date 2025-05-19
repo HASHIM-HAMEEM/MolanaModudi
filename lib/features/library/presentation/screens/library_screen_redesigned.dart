@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:google_fonts/google_fonts.dart';
 import 'package:flutter_staggered_animations/flutter_staggered_animations.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:logging/logging.dart';
@@ -305,6 +306,7 @@ class _LibraryScreenRedesignedState extends ConsumerState<LibraryScreenRedesigne
     return AppBar(
       backgroundColor: backgroundColor,
       elevation: 0,
+      centerTitle: true, // Center the title
       systemOverlayStyle: isDark 
           ? SystemUiOverlayStyle.light 
           : SystemUiOverlayStyle.dark,
@@ -324,9 +326,10 @@ class _LibraryScreenRedesignedState extends ConsumerState<LibraryScreenRedesigne
             )
           : Text(
               displayTitle,
-              style: theme.textTheme.titleLarge?.copyWith(
+              style: GoogleFonts.playfairDisplay(
+                fontWeight: FontWeight.w600,
+                fontSize: 22,
                 color: textColor,
-                fontWeight: FontWeight.bold,
               ),
             ),
       actions: [

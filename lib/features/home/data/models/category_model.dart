@@ -15,6 +15,30 @@ class CategoryModel extends CategoryEntity {
           name: title,
         );
   
+  // Factory constructor to create from Firestore document
+  factory CategoryModel.fromMap(String id, Map<String, dynamic> data) {
+    // Parse icon data if available
+    IconData? iconData;
+    if (data['iconCodePoint'] != null) {
+      iconData = IconData(
+        data['iconCodePoint'] as int,
+        fontFamily: data['iconFontFamily'] as String?,
+        fontPackage: data['iconFontPackage'] as String?,
+      );
+    }
+    
+    return CategoryModel(
+      id: id,
+      title: data['title'] as String,
+      count: data['count'] as int? ?? 0,
+      // Color can be parsed from hex string if provided
+      displayColor: data['color'] != null ? Color(int.parse(data['color'] as String, radix: 16)) : null,
+      icon: iconData,
+      keywords: data['keywords'] != null ? List<String>.from(data['keywords'] as List) : null,
+      description: data['description'] as String?,
+    );
+  }
+  
   // Factory constructor to create from JSON
   factory CategoryModel.fromJson(Map<String, dynamic> json) {
     // Parse icon data if available
