@@ -55,13 +55,32 @@ class BooksGrid extends ConsumerWidget {
             const SizedBox(height: 16),
             ElevatedButton(
               onPressed: () {
+                // Refresh providers based on the widget configuration
+                // The UI will automatically rebuild when the provider state changes
+                // Create a variable to store the refresh result
+                AsyncValue<dynamic> refreshResult;
+                
                 if (featured) {
-                  ref.refresh(featuredBooksProvider);
+                  refreshResult = ref.refresh(featuredBooksProvider);
                 } else if (category != null) {
-                  ref.refresh(booksByCategoryProvider(category!));
+                  refreshResult = ref.refresh(booksByCategoryProvider(category!));
                 } else {
-                  ref.refresh(booksProvider);
+                  refreshResult = ref.refresh(booksProvider);
                 }
+                
+                // Monitor the refresh status to provide feedback
+                refreshResult.whenOrNull(
+                  error: (error, stackTrace) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text('Error refreshing: ${error.toString()}'))
+                    );
+                  }
+                );
+                
+                // Show a message to indicate refresh is happening
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Refreshing books...'), duration: Duration(seconds: 1))
+                );
               },
               child: const Text('Retry'),
             ),

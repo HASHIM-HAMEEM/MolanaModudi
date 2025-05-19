@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:logging/logging.dart';
 import '../providers/reading_state.dart';
 import '../providers/reading_provider.dart';
+// Removed unused import // Import for readingRepositoryProvider
 
 class AiToolsPanel extends ConsumerStatefulWidget {
   final VoidCallback onClose;
@@ -553,13 +554,14 @@ class _AiToolsPanelState extends ConsumerState<AiToolsPanel> with SingleTickerPr
     });
     
     try {
-      final repository = ref.read(readingRepositoryProvider);
+      // Use the notifier method instead of directly accessing the repository
+      final readingNotifier = ref.read(readingNotifierProvider(widget.bookId).notifier);
       
-      // Get recently read books from history
-      // This is a simplified example; in a real app, you'd get this from a provider
-      List<String> recentBooks = [widget.bookState.bookTitle ?? widget.bookId];
+      // The notifier method will handle preferences internally
+      await readingNotifier.getBookRecommendations();
       
-      final recommendations = await repository.getBookRecommendations(recentBooks);
+      // Get the recommendations from the state
+      final recommendations = ref.read(readingNotifierProvider(widget.bookId)).bookRecommendations;
       
       setState(() {
         _recommendations = recommendations;
@@ -584,12 +586,14 @@ class _AiToolsPanelState extends ConsumerState<AiToolsPanel> with SingleTickerPr
     });
     
     try {
-      final repository = ref.read(readingRepositoryProvider);
+      // Use the notifier method instead of directly accessing the repository
+      final readingNotifier = ref.read(readingNotifierProvider(widget.bookId).notifier);
       
-      final results = await repository.searchWithinContent(
-        query,
-        widget.bookState.textContent!,
-      );
+      // The notifier already has access to the text content
+      await readingNotifier.searchWithinContent(query);
+      
+      // Get the search results from the state
+      final results = ref.read(readingNotifierProvider(widget.bookId)).searchResults;
       
       setState(() {
         _searchResults = results;
@@ -619,13 +623,18 @@ class _AiToolsPanelState extends ConsumerState<AiToolsPanel> with SingleTickerPr
     });
     
     try {
-      final repository = ref.read(readingRepositoryProvider);
+      // Use the notifier method instead of directly accessing the repository
+      final readingNotifier = ref.read(readingNotifierProvider(widget.bookId).notifier);
       
-      final translationResult = await repository.translateText(text, _targetLanguage);
+      // Use the notifier method for translation
+      await readingNotifier.translateText(text, _targetLanguage);
+      
+      // Get the translation result from the state
+      final translationData = ref.read(readingNotifierProvider(widget.bookId)).currentTranslation;
       
       setState(() {
-        _translatedText = translationResult.containsKey('translatedText') 
-            ? translationResult['translatedText']?.toString() 
+        _translatedText = translationData != null && translationData.containsKey('translated') 
+            ? translationData['translated']?.toString() ?? 'Translation failed.' 
             : 'Translation failed.';
         _isLoadingTranslation = false;
       });

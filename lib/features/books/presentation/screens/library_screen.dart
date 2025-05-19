@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:google_fonts/google_fonts.dart';
 import 'package:modudi/routes/route_names.dart'; // Import RouteNames
 import '../widgets/book_grid_item.dart'; // Import grid item
 import '../widgets/book_list_item.dart'; // Import list item
@@ -521,7 +522,14 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
     }
     
     return AppBar(
-      title: _isSearching ? null : const Text('Library'),
+      title: _isSearching ? null : Text(
+        'Library',
+        style: GoogleFonts.playfairDisplay(
+          fontWeight: FontWeight.w600,
+          fontSize: 22,
+          color: theme.colorScheme.onSurface,
+        ),
+      ),
       centerTitle: true,
       actions: _isSearching
         ? null // Hide actions when searching

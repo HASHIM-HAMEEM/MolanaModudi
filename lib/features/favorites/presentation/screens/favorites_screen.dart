@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:logging/logging.dart';
+import 'package:google_fonts/google_fonts.dart';
 import 'package:modudi/features/settings/presentation/providers/settings_provider.dart';
 import 'package:flutter_staggered_animations/flutter_staggered_animations.dart';
 import 'package:modudi/features/favorites/providers/favorites_provider.dart';
@@ -63,7 +64,7 @@ class FavoritesScreen extends ConsumerWidget {
     return AppBar(
       elevation: 0,
       backgroundColor: backgroundColor,
-      centerTitle: false,
+      centerTitle: true, // Center the title
       systemOverlayStyle: isDark
           ? SystemUiOverlayStyle.light.copyWith(
               statusBarColor: Colors.transparent,
@@ -73,16 +74,13 @@ class FavoritesScreen extends ConsumerWidget {
               statusBarColor: Colors.transparent,
               systemNavigationBarColor: backgroundColor,
             ),
-      title: AnimatedDefaultTextStyle(
-        duration: const Duration(milliseconds: 250),
-        style: TextStyle(
-          fontSize: _scaleFontSize(20, ref),
+      title: Text(
+        'Favorites',
+        style: GoogleFonts.playfairDisplay(
           fontWeight: FontWeight.w600,
-          letterSpacing: 0.3,
+          fontSize: 22,
           color: titleColor,
-          height: 1.2,
         ),
-        child: const Text('Favorites'),
       ),
       // No actions needed
       bottom: PreferredSize(

@@ -1,6 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
-import 'package:modudi/features/books/data/cache/book_cache_service.dart';
+import 'package:modudi/core/cache/cache_service.dart';
+import 'package:modudi/core/cache/config/cache_constants.dart';
 import 'package:modudi/features/books/data/models/book_models.dart';
 
 /// Abstract repository definition for fetching books.
@@ -26,10 +27,10 @@ abstract class BooksRepository {
 
 class BooksRepositoryImpl implements BooksRepository {
   final FirebaseFirestore _firestore;
-  final BookCacheService _cacheService;
+  final CacheService _cacheService;
   
   BooksRepositoryImpl({
-    required BookCacheService cacheService,
+    required CacheService cacheService,
     FirebaseFirestore? firestore,
   }) : _firestore = firestore ?? FirebaseFirestore.instance,
        _cacheService = cacheService;
@@ -39,10 +40,17 @@ class BooksRepositoryImpl implements BooksRepository {
   Future<Book?> getBook(String bookId) async {
     try {
       // Try to get from cache first
-      final cachedBook = await _cacheService.getCachedBook(bookId);
-      if (cachedBook != null) {
-        debugPrint('Retrieved book from cache: ${cachedBook.title}');
-        return cachedBook;
+      final cacheKey = '${CacheConstants.bookKeyPrefix}$bookId';
+      final cacheResult = await _cacheService.getCachedData<Map<String, dynamic>>(
+        key: cacheKey,
+        boxName: CacheConstants.booksBoxName,
+      );
+      
+      if (cacheResult.hasData) {
+        final bookData = cacheResult.data!;
+        final book = Book.fromMap(bookId, bookData);
+        debugPrint('Retrieved book from cache: ${book.title}');
+        return book;
       }
       
       // If not in cache, fetch from Firestore
@@ -68,7 +76,12 @@ class BooksRepositoryImpl implements BooksRepository {
       final bookWithHeadings = book.copyWith(headings: headings);
       
       // Cache the book for future use
-      await _cacheService.cacheBook(bookWithHeadings);
+      await _cacheService.cacheData(
+        key: cacheKey,
+        data: bookDoc.data(),
+        boxName: CacheConstants.booksBoxName,
+        ttl: const Duration(hours: 24),
+      );
       
       return bookWithHeadings;
     } catch (e) {

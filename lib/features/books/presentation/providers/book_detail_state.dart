@@ -1,12 +1,12 @@
 import 'package:equatable/equatable.dart';
-import 'package:modudi/features/books/domain/entities/book_detail_entity.dart';
+import 'package:modudi/features/books/data/models/book_models.dart';
 import 'package:modudi/features/reading/presentation/providers/reading_state.dart'; // Import AiFeatureStatus
 
 enum BookDetailStatus { initial, loading, success, error }
 
 class BookDetailState extends Equatable {
   final BookDetailStatus status;
-  final BookDetailEntity? bookDetail;
+  final Book? bookDetail;
   final String? errorMessage;
   
   // AI Enhanced Details
@@ -25,16 +25,17 @@ class BookDetailState extends Equatable {
 
   BookDetailState copyWith({
     BookDetailStatus? status,
-    BookDetailEntity? bookDetail,
+    Book? bookDetail,
     String? errorMessage,
     Map<String, dynamic>? aiSummaryData,
     List<Map<String, dynamic>>? aiRecommendations,
     AiFeatureStatus? aiDetailsStatus,
     bool clearError = false,
+    bool clearBookDetail = false,
   }) {
     return BookDetailState(
       status: status ?? this.status,
-      bookDetail: bookDetail ?? this.bookDetail,
+      bookDetail: clearBookDetail ? null : bookDetail ?? this.bookDetail,
       errorMessage: clearError ? null : errorMessage ?? this.errorMessage,
       aiSummaryData: aiSummaryData ?? this.aiSummaryData,
       aiRecommendations: aiRecommendations ?? this.aiRecommendations,

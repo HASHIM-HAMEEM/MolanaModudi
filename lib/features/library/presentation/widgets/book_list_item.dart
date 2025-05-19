@@ -80,30 +80,46 @@ class BookListItem extends StatelessWidget {
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Text(
-                                title, // Use title from BookModel
-                                style: bookItemStyles.titleStyle,
-                                maxLines: 2,
-                                overflow: TextOverflow.ellipsis,
+                              ConstrainedBox(
+                                constraints: const BoxConstraints(maxWidth: 200), // Limit title width
+                                child: Text(
+                                  title,
+                                  style: bookItemStyles.titleStyle,
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
                               ),
                               const SizedBox(height: 2.0),
-                              Text(
-                                author, // Use author from BookModel
-                                style: bookItemStyles.authorStyle,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
+                              ConstrainedBox(
+                                constraints: const BoxConstraints(maxWidth: 200), // Limit author width
+                                child: Text(
+                                  author,
+                                  style: bookItemStyles.authorStyle,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
                               ),
                             ],
                           ),
                         ),
-                        const SizedBox(width: 8),
-                        Chip(
-                          label: Text(category), // Use category from BookModel
-                          labelStyle: theme.chipTheme.labelStyle?.copyWith(fontSize: 10),
-                          padding: const EdgeInsets.symmetric(horizontal: 6.0),
-                          backgroundColor: theme.chipTheme.backgroundColor,
-                          materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                          visualDensity: VisualDensity.compact,
+                        const SizedBox(width: 4), // Reduced spacing
+                        ConstrainedBox(
+                          constraints: const BoxConstraints(maxWidth: 80), // Limit chip width
+                          child: Chip(
+                            label: Text(
+                              category,
+                              overflow: TextOverflow.ellipsis,
+                              maxLines: 1,
+                            ),
+                            labelStyle: theme.chipTheme.labelStyle?.copyWith(
+                              fontSize: 10,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                            padding: const EdgeInsets.symmetric(horizontal: 4.0, vertical: 0),
+                            backgroundColor: theme.chipTheme.backgroundColor,
+                            materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                            visualDensity: VisualDensity.compact,
+                          ),
                         ),
                       ],
                     ),

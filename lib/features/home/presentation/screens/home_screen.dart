@@ -31,11 +31,21 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   final TextEditingController _searchQueryController = TextEditingController();
   final FocusNode _searchFocusNode = FocusNode();
 
+  // Track if we've already loaded data to prevent excessive reloads
+  static bool _hasLoadedHomeData = false;
+  
   @override
   void initState() {
     super.initState();
-    // Fetch data when the screen initializes
-    Future.microtask(() => ref.read(homeNotifierProvider.notifier).loadHomeData());
+    
+    // Only load data if it hasn't been loaded before or if state is in error
+    final homeState = ref.read(homeNotifierProvider);
+    if (!_hasLoadedHomeData || homeState.status == HomeStatus.error) {
+      Future.microtask(() {
+        ref.read(homeNotifierProvider.notifier).loadHomeData();
+        _hasLoadedHomeData = true;
+      });
+    }
   }
 
   @override

@@ -23,3 +23,12 @@ A Flutter application for reading and exploring Islamic content, including books
 1. Clone the repository
 2. Install dependencies: `flutter pub get`
 3. Run the app: `flutter run --dart-define=GEMINI_API_KEY=YOUR_KEY`
+
+## Contributing
+Contributions are welcome! Please feel free to submit a Pull Request.
+
+1. Fork the repository
+2. Create your feature branch (`git checkout -b feature/amazing-feature`)
+3. Commit your changes (`git commit -m 'Add some amazing feature'`)
+4. Push to the branch (`git push origin feature/amazing-feature`)
+5. Open a Pull Request
