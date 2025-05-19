@@ -1,21 +1,17 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
+import 'package:flutter/services.dart'; // Import for Clipboard
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:logging/logging.dart';
-import 'package:modudi/core/themes/maududi_theme.dart';
 import 'package:go_router/go_router.dart';
 import 'package:modudi/routes/route_names.dart';
 import 'package:modudi/features/books/data/models/book_models.dart';
 import 'package:modudi/core/utils/app_logger.dart';
-import '../providers/book_detail_provider.dart';
-import '../providers/book_detail_state.dart';
 import 'package:modudi/features/favorites/providers/favorites_provider.dart';
-import 'package:modudi/features/home/domain/entities/book_entity.dart';
-import 'package:modudi/features/reading/presentation/providers/reading_state.dart';
 import 'package:modudi/features/reading/data/models/bookmark_model.dart';
 import 'package:modudi/features/reading/data/repositories/reading_repository_impl.dart';
+import 'package:google_fonts/google_fonts.dart';
 
 class BookDetailScreen extends ConsumerStatefulWidget {
   final String bookId; // Assume bookId is passed to the screen
@@ -137,22 +133,20 @@ class _BookDetailScreenState extends ConsumerState<BookDetailScreen> with Single
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final colorScheme = theme.colorScheme;
-    // Watch favorites provider
+    // Watch favorites provider (keep as is for now, adapt if needed)
     final favorites = ref.watch(favoritesProvider);
     final isFavorite = favorites.any((favBook) => favBook.firestoreDocId == widget.bookId);
     
     AppLogger.logUserAction('BookDetail', 'check_favorite_status', 
       details: {'bookId': widget.bookId, 'isFavorite': isFavorite});
 
-    // Handle loading state
+    // Handle loading and error states based on local state
     if (_isLoading) {
       return Scaffold(
         appBar: AppBar(
-          backgroundColor: colorScheme.primary,
+          backgroundColor: Theme.of(context).colorScheme.primary,
           title: const Text('Loading...'),
           foregroundColor: Colors.white,
-          elevation: 0,
           leading: BackButton(
             color: Colors.white,
             onPressed: () {
@@ -165,44 +159,25 @@ class _BookDetailScreenState extends ConsumerState<BookDetailScreen> with Single
                 }
               } catch (e) {
                 _log.warning('Error during back navigation: $e');
+                // Fallback to home if navigation fails
                 context.go(RouteNames.home);
               }
             },
           ),
         ),
         body: Center(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              SizedBox(
-                width: 50,
-                height: 50,
-                child: CircularProgressIndicator(
-                  color: colorScheme.primary,
-                  strokeWidth: 3,
-                ),
-              ),
-              const SizedBox(height: 24),
-              Text(
-                'Loading book details...',
-                style: theme.textTheme.bodyLarge?.copyWith(
-                  color: colorScheme.onBackground.withOpacity(0.7),
-                ),
-              ),
-            ],
-          ),
+          child: CircularProgressIndicator(
+            color: Theme.of(context).colorScheme.primary,
+          )
         ),
-        backgroundColor: colorScheme.background,
+        backgroundColor: Theme.of(context).colorScheme.background,
       );
-    } 
-    // Handle error state
-    else if (_errorMessage != null || _book == null) {
+    } else if (_errorMessage != null || _book == null) {
       return Scaffold(
         appBar: AppBar(
-          backgroundColor: colorScheme.primary,
+          backgroundColor: Theme.of(context).colorScheme.primary,
           title: const Text('Error'),
           foregroundColor: Colors.white,
-          elevation: 0,
           leading: BackButton(
             color: Colors.white,
             onPressed: () {
@@ -215,6 +190,7 @@ class _BookDetailScreenState extends ConsumerState<BookDetailScreen> with Single
                 }
               } catch (e) {
                 _log.warning('Error during back navigation: $e');
+                // Fallback to home if navigation fails
                 context.go(RouteNames.home);
               }
             },
@@ -222,154 +198,164 @@ class _BookDetailScreenState extends ConsumerState<BookDetailScreen> with Single
         ),
         body: Center(
           child: Padding(
-            padding: const EdgeInsets.all(24.0),
+            padding: const EdgeInsets.all(16.0),
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Container(
-                  padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                    color: colorScheme.errorContainer.withOpacity(0.2),
-                    shape: BoxShape.circle,
-                  ),
-                  child: Icon(
-                    Icons.error_outline, 
-                    size: 48, 
-                    color: colorScheme.error,
-                  ),
-                ),
-                const SizedBox(height: 24),
-                Text(
-                  'Error Loading Book Details',
-                  style: theme.textTheme.titleLarge?.copyWith(
-                    fontWeight: FontWeight.bold,
-                    color: colorScheme.onBackground,
-                  ),
+                Icon(Icons.error_outline, size: 48, color: Theme.of(context).colorScheme.error),
+                const SizedBox(height: 16),
+                const Text(
+                  'Error loading book details',
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
                   textAlign: TextAlign.center,
                 ),
-                const SizedBox(height: 12),
+                const SizedBox(height: 8),
                 Text(
                   _errorMessage ?? 'Book data could not be loaded.',
-                  style: theme.textTheme.bodyMedium?.copyWith(
-                    color: colorScheme.onBackground.withOpacity(0.7),
-                  ),
                   textAlign: TextAlign.center,
                 ),
-                const SizedBox(height: 32),
+                const SizedBox(height: 24),
                 ElevatedButton.icon(
+                  // Use the local reload method
                   onPressed: _loadBookDetails,
                   icon: const Icon(Icons.refresh),
                   label: const Text('Retry'),
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: colorScheme.primary,
+                    backgroundColor: Theme.of(context).colorScheme.primary,
                     foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(8),
-                    ),
                   ),
                 ),
               ],
             ),
           )
         ),
-        backgroundColor: colorScheme.background,
+        backgroundColor: Theme.of(context).colorScheme.background,
       );
-    } 
-    // Success state
-    else {
+    } else {
+      // Success state - build the UI with real data from _book and _headings
       final book = _book!;
-      final statusBarHeight = MediaQuery.of(context).padding.top;
-      final screenWidth = MediaQuery.of(context).size.width;
-      final isTablet = screenWidth > 600;
-      
-      // Calculate responsive book cover dimensions
-      final coverWidth = isTablet ? 140.0 : 110.0;
-      final coverHeight = isTablet ? 200.0 : 160.0;
 
       return Scaffold(
-        // Use transparent AppBar to allow custom header to show through
-        extendBodyBehindAppBar: true,
+        // Brown app bar with back and share buttons
         appBar: AppBar(
-          backgroundColor: Colors.transparent,
-          elevation: 0,
-          leading: Padding(
-            padding: const EdgeInsets.all(8.0),
-            child: Container(
+          backgroundColor: Theme.of(context).colorScheme.primary,
+          foregroundColor: Colors.white,
+          title: Text(book.title ?? 'Book Detail', overflow: TextOverflow.ellipsis),
+                leading: IconButton(
+            icon: Container(
+              padding: const EdgeInsets.all(8),
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
-                color: Colors.black.withOpacity(0.2),
+                color: Colors.white.withOpacity(0.2),
               ),
-              child: IconButton(
-                icon: const Icon(Icons.arrow_back, color: Colors.white),
-                onPressed: () {
-                  _log.info('Navigating back from book detail');
-                  try {
-                    if (context.canPop()) {
-                      context.pop();
-                    } else {
-                      context.go(RouteNames.home);
-                    }
-                  } catch (e) {
-                    _log.warning('Error during back navigation: $e');
-                    context.go(RouteNames.home);
-                  }
-                },
+              child: Icon(
+                Icons.arrow_back,
+                color: Colors.white,
+                size: 20,
               ),
             ),
-          ),
-          actions: [
-            Padding(
-              padding: const EdgeInsets.all(8.0),
-              child: Container(
+                  onPressed: () {
+              _log.info('Navigating back from book detail');
+              try {
+                if (context.canPop()) {
+                  context.pop();
+                    } else {
+                  context.go(RouteNames.home);
+                }
+              } catch (e) {
+                _log.warning('Error during back navigation: $e');
+                // Fallback to home if navigation fails
+                      context.go(RouteNames.home);
+                    }
+                  },
+                ),
+                actions: [
+                  IconButton(
+              icon: Container(
+                padding: const EdgeInsets.all(8),
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
-                  color: Colors.black.withOpacity(0.2),
+                  color: Colors.white.withOpacity(0.2),
                 ),
-                child: IconButton(
-                  icon: const Icon(Icons.share, color: Colors.white),
-                  onPressed: () {},
+                child: const Icon(
+                  Icons.share,
+                  color: Colors.white,
+                  size: 20,
                 ),
               ),
+              onPressed: () async {
+                try {
+                  // Get book details for sharing
+                  final book = _book;
+                  if (book == null) return;
+                  
+                  // Create sharing text
+                  final String shareText = '''Check out "${book.title}" by ${book.author ?? 'Unknown Author'} on the Maulana Maududi app!
+
+${book.description != null ? '${book.description?.substring(0, book.description!.length > 100 ? 100 : book.description!.length)}...' : 'A great book to explore!'}
+
+Download the app to read more.''';
+                  
+                  // Use platform channel to share text
+                  await Clipboard.setData(ClipboardData(text: shareText));
+                  
+                  // Show snackbar for confirmation
+                  if (mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text('Book details copied to clipboard for sharing!'),
+                      backgroundColor: Theme.of(context).colorScheme.primary,
+                      behavior: SnackBarBehavior.floating,
+                    ));
+                  }
+                  
+                  _log.info('Shared book: ${book.title}');
+                } catch (e) {
+                  _log.warning('Error sharing book: $e');
+                  if (mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('Could not share this book'))
+                    );
+                  }
+                }
+              },
             ),
           ],
         ),
         body: Column(
           children: [
-            // Book header section with book image and title
+            // Book header section with book image and title - now more responsive
             Container(
-              padding: EdgeInsets.only(
-                top: statusBarHeight + 16, // Adjust for status bar
-                bottom: 24,
-                left: 20,
-                right: 20,
+              padding: EdgeInsets.symmetric(
+                horizontal: MediaQuery.of(context).size.width * 0.05, 
+                vertical: 20
               ),
               decoration: BoxDecoration(
-                color: colorScheme.primary,
+                color: Theme.of(context).colorScheme.primary,
                 boxShadow: [
                   BoxShadow(
                     color: Colors.black.withOpacity(0.1),
-                    blurRadius: 10,
                     offset: const Offset(0, 3),
-                  ),
+                    blurRadius: 6,
+                  )
                 ],
               ),
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // Book cover image with enhanced shadow and animation
+                  // Book cover image with responsive width
                   Hero(
                     tag: 'book-${widget.bookId}',
                     child: Container(
-                      width: coverWidth,
-                      height: coverHeight,
+                      width: MediaQuery.of(context).size.width * 0.28, 
+                      // Height is proportional, using aspect ratio
+                      height: MediaQuery.of(context).size.width * 0.28 * 1.5, 
                       decoration: BoxDecoration(
                         borderRadius: BorderRadius.circular(12),
                         boxShadow: [
                           BoxShadow(
-                            color: Colors.black.withOpacity(0.3),
+                            color: Colors.black.withOpacity(0.25),
                             blurRadius: 12,
-                            offset: const Offset(0, 6),
+                            offset: const Offset(0, 5),
                           ),
                         ],
                       ),
@@ -391,66 +377,61 @@ class _BookDetailScreenState extends ConsumerState<BookDetailScreen> with Single
                     ),
                   ),
                   const SizedBox(width: 20),
-                  // Book details with improved typography
+                  const SizedBox(width: 20),
+                  // Book details - enhanced with better typography
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisAlignment: MainAxisAlignment.center, // Align text vertically
                       children: [
                         Text(
                           book.title ?? 'Untitled Book',
-                          style: TextStyle(
+                          style: GoogleFonts.playfairDisplay(
                             color: Colors.white,
-                            fontSize: isTablet ? 24 : 20,
+                            fontSize: MediaQuery.of(context).size.width * 0.055,
                             fontWeight: FontWeight.bold,
                             height: 1.3,
-                            shadows: [
-                              Shadow(
-                                color: Colors.black.withOpacity(0.3),
-                                blurRadius: 2,
-                                offset: const Offset(0, 1),
-                              ),
-                            ],
+                            letterSpacing: -0.5,
                           ),
                           maxLines: 3,
                           overflow: TextOverflow.ellipsis,
                         ),
-                        const SizedBox(height: 8),
+                        const SizedBox(height: 10),
                         if (book.author != null)
                           Text(
                             'by ${book.author}',
-                            style: TextStyle(
-                              color: Colors.white.withOpacity(0.9),
-                              fontSize: isTablet ? 17 : 15,
+                            style: GoogleFonts.inter(
+                              color: Colors.white.withOpacity(0.9), 
+                              fontSize: 15,
                               height: 1.5,
+                              fontWeight: FontWeight.w400,
                             ),
                           ),
                         const SizedBox(height: 16),
                         if (book.tags != null && book.tags!.isNotEmpty) 
-                          SizedBox(
-                            height: 32,
-                            child: ListView(
-                              scrollDirection: Axis.horizontal,
-                              children: book.tags!.map((tag) => Container(
-                                margin: const EdgeInsets.only(right: 8),
-                                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                                decoration: BoxDecoration(
-                                  color: Colors.white.withOpacity(0.2),
-                                  borderRadius: BorderRadius.circular(16),
-                                  border: Border.all(
-                                    color: Colors.white.withOpacity(0.3),
-                                    width: 1,
-                                  ),
+                          Wrap(
+                            spacing: 6,
+                            runSpacing: 8,
+                            children: book.tags!.map((tag) => Container(
+                              margin: const EdgeInsets.only(right: 2),
+                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                              decoration: BoxDecoration(
+                                color: Colors.white.withOpacity(0.2),
+                                borderRadius: BorderRadius.circular(16),
+                                border: Border.all(
+                                  color: Colors.white30,
+                                  width: 1,
                                 ),
-                                child: Text(
-                                  tag,
-                                  style: TextStyle(
-                                    color: Colors.white,
-                                    fontSize: isTablet ? 14 : 12,
-                                    fontWeight: FontWeight.w500,
-                                  ),
+                              ),
+                              child: Text(
+                                tag,
+                                style: GoogleFonts.inter(
+                                  color: Colors.white,
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w500,
                                 ),
-                              )).toList(),
-                            ),
+                              ),
+                            )).toList(),
                           ),
                       ],
                     ),
@@ -459,7 +440,7 @@ class _BookDetailScreenState extends ConsumerState<BookDetailScreen> with Single
               ),
             ),
             
-            // Tab bar with improved design
+            // Tab bar with improved design - more modern and responsive
             Material(
               color: Theme.of(context).colorScheme.primary,
               child: Container(
@@ -471,29 +452,32 @@ class _BookDetailScreenState extends ConsumerState<BookDetailScreen> with Single
                     ),
                   ),
                 ),
-                    child: TabBar(
-                      controller: _tabController,
+                child: TabBar(
+                  controller: _tabController,
                   labelColor: Colors.white,
-                  unselectedLabelColor: Colors.white.withOpacity(0.7),
+                  unselectedLabelColor: Colors.white.withOpacity(0.6),
                   indicatorColor: Colors.white,
                   indicatorWeight: 3,
-                  labelStyle: const TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.bold,
+                  indicatorSize: TabBarIndicatorSize.label,
+                  padding: const EdgeInsets.symmetric(horizontal: 8),
+                  labelStyle: GoogleFonts.inter(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w600,
+                    letterSpacing: 0.2,
                   ),
-                  unselectedLabelStyle: const TextStyle(
-                    fontSize: 14,
+                  unselectedLabelStyle: GoogleFonts.inter(
+                    fontSize: 15,
                     fontWeight: FontWeight.w400,
                   ),
-                      tabs: const [
-                        Tab(text: 'Overview'),
-                        Tab(text: 'Chapters'),
-                        Tab(text: 'Bookmarks'),
-                        Tab(text: 'AI Insights'),
-                      ],
-                    ),
-                  ),
+                  tabs: const [
+                    Tab(text: 'Overview'),
+                    Tab(text: 'Chapters'),
+                    Tab(text: 'Bookmarks'),
+                    Tab(text: 'AI Insights'),
+                  ],
                 ),
+              ),
+            ),
             
             // Tab content
             Expanded(
@@ -509,61 +493,77 @@ class _BookDetailScreenState extends ConsumerState<BookDetailScreen> with Single
         ),
           ],
         ),
-        // Bottom bar with heart button and "Start Reading" button
+        // Enhanced bottom bar with heart button and "Start Reading" button
         bottomNavigationBar: Container(
           padding: EdgeInsets.only(
-            left: 20, 
-            right: 20, 
+            left: MediaQuery.of(context).size.width * 0.05, 
+            right: MediaQuery.of(context).size.width * 0.05, 
             top: 16,
             bottom: MediaQuery.of(context).padding.bottom > 0 
-                ? MediaQuery.of(context).padding.bottom 
-                : 16,
+                ? MediaQuery.of(context).padding.bottom + 8 
+                : 20,
           ),
           decoration: BoxDecoration(
             color: Colors.white,
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withOpacity(0.05),
-                blurRadius: 10,
-                offset: const Offset(0, -2),
+                color: Colors.black.withOpacity(0.06),
+                blurRadius: 15,
+                offset: const Offset(0, -3),
               ),
             ],
           ),
           child: Row(
             children: [
-              // Heart/Favorite button (red circle with outline)
+              // Heart/Favorite button (red circle with outline) - enhanced with animation
               GestureDetector(
                 onTap: () {
                   ref.read(favoritesProvider.notifier).toggleFavorite(book);
+                  // Add haptic feedback
+                  HapticFeedback.mediumImpact();
                 },
                 child: AnimatedContainer(
                   duration: const Duration(milliseconds: 300),
-                  width: 50,
-                  height: 50,
+                  width: 56,
+                  height: 56,
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
-                    color: isFavorite ? Colors.red.withOpacity(0.1) : Colors.transparent,
+                    color: isFavorite ? Colors.red.withOpacity(0.1) : Colors.grey.withOpacity(0.05),
                     border: Border.all(
                       color: isFavorite ? Colors.red : Colors.grey.shade300,
                       width: 2,
                     ),
+                    boxShadow: isFavorite ? [
+                      BoxShadow(
+                        color: Colors.red.withOpacity(0.2),
+                        blurRadius: 8,
+                        spreadRadius: 1,
+                        offset: const Offset(0, 2),
+                      ),
+                    ] : [],
                   ),
                   child: Center(
-                    child: Icon(
-                      isFavorite ? Icons.favorite : Icons.favorite_border,
-                      color: isFavorite ? Colors.red : Colors.grey,
-                      size: 26,
+                    child: AnimatedScale(
+                      scale: isFavorite ? 1.1 : 1.0,
+                      duration: const Duration(milliseconds: 300),
+                      child: Icon(
+                        isFavorite ? Icons.favorite : Icons.favorite_border,
+                        color: isFavorite ? Colors.red : Colors.grey,
+                        size: 28,
+                      ),
                     ),
                   ),
                 ),
               ),
               
-              const SizedBox(width: 20),
+              SizedBox(width: MediaQuery.of(context).size.width * 0.04),
               
-              // Start Reading button (themed button with book icon)
+              // Start Reading button (themed button with book icon) - enhanced design
               Expanded(
                 child: ElevatedButton.icon(
                   onPressed: () {
+                    // Add haptic feedback
+                    HapticFeedback.mediumImpact();
                     context.goNamed(
                       RouteNames.readingBook, 
                       pathParameters: {'bookId': book.firestoreDocId}
@@ -572,18 +572,20 @@ class _BookDetailScreenState extends ConsumerState<BookDetailScreen> with Single
                   style: ElevatedButton.styleFrom(
                     backgroundColor: Theme.of(context).colorScheme.primary,
                     foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(vertical: 16),
+                    padding: const EdgeInsets.symmetric(vertical: 18),
                     shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(10),
+                      borderRadius: BorderRadius.circular(14),
                     ),
-                    elevation: 2,
+                    elevation: 3,
+                    shadowColor: Theme.of(context).colorScheme.primary.withOpacity(0.4),
                   ),
-                  icon: const Icon(Icons.menu_book, size: 20),
-                  label: const Text(
+                  icon: const Icon(Icons.menu_book, size: 22),
+                  label: Text(
                     'Start Reading',
-                    style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold,
+                    style: GoogleFonts.inter(
+                      fontSize: 17,
+                      fontWeight: FontWeight.w600,
+                      letterSpacing: 0.3,
                     ),
                   ),
                 ),
@@ -673,10 +675,13 @@ class _BookDetailScreenState extends ConsumerState<BookDetailScreen> with Single
     );
   }
 
-  // Update Overview Tab to use BookModel
+  // Enhanced Overview Tab with modern design
   Widget _buildOverviewTab(Book book) {
     return SingleChildScrollView(
-      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
+      padding: EdgeInsets.symmetric(
+        horizontal: MediaQuery.of(context).size.width * 0.05,
+        vertical: 24
+      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -684,41 +689,51 @@ class _BookDetailScreenState extends ConsumerState<BookDetailScreen> with Single
           Container(
             decoration: BoxDecoration(
               color: Colors.white,
-              borderRadius: BorderRadius.circular(12),
+              borderRadius: BorderRadius.circular(16),
               boxShadow: [
                 BoxShadow(
-                  color: Colors.black.withOpacity(0.04),
-                  blurRadius: 10,
+                  color: Colors.black.withOpacity(0.05),
+                  blurRadius: 15,
                   spreadRadius: 1,
-                  offset: const Offset(0, 2),
+                  offset: const Offset(0, 3),
                 ),
               ],
             ),
-            padding: const EdgeInsets.all(20),
+            padding: const EdgeInsets.all(22),
             child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
                 Row(
                   children: [
-                    const Icon(Icons.description_outlined, 
-                      color: Color(0xFFB07A2B), size: 22),
-                    const SizedBox(width: 10),
-              Text(
+                    Container(
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: Theme.of(context).colorScheme.primary.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Icon(
+                        Icons.description_outlined, 
+                        color: Theme.of(context).colorScheme.primary,
+                        size: 22
+                      ),
+                    ),
+                    const SizedBox(width: 14),
+                    Text(
                       'Description',
-                      style: TextStyle(
-                        fontSize: 18, 
+                      style: GoogleFonts.playfairDisplay(
+                        fontSize: 20, 
                         fontWeight: FontWeight.bold,
                         color: Colors.grey.shade800,
                       ),
+                    ),
+                  ],
                 ),
-            ],
-          ),
-                const SizedBox(height: 16),
+                const SizedBox(height: 20),
                 Text(
                   book.description ?? 'No description available.',
-                  style: TextStyle(
-                    fontSize: 15, 
-                    height: 1.6, 
+                  style: GoogleFonts.inter(
+                    fontSize: 16, 
+                    height: 1.7, 
                     color: Colors.grey.shade700,
                   ),
                 ),
@@ -777,30 +792,32 @@ class _BookDetailScreenState extends ConsumerState<BookDetailScreen> with Single
     );
   }
 
-  // Helper for detail rows
+  // Enhanced helper for detail rows
   Widget _buildDetailRow(String label, String value) {
     return Padding(
-      padding: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.only(bottom: 16),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           SizedBox(
-            width: 90,
+            width: 100,
             child: Text(
               label,
-              style: TextStyle(
+              style: GoogleFonts.inter(
                 fontWeight: FontWeight.w600, 
                 fontSize: 15,
-                color: Colors.grey.shade600,
+                color: Colors.grey.shade700,
+                letterSpacing: 0.3,
               ),
             ),
           ),
           Expanded(
             child: Text(
               value, 
-              style: TextStyle(
+              style: GoogleFonts.inter(
                 fontSize: 15,
                 color: Colors.grey.shade800,
+                height: 1.5,
               ),
             ),
           ),
@@ -968,16 +985,26 @@ class _BookDetailScreenState extends ConsumerState<BookDetailScreen> with Single
 
     return Card(
       margin: const EdgeInsets.only(bottom: 16),
-      elevation: 2,
+      elevation: 1.5,
+      shadowColor: Colors.black.withOpacity(0.1),
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(16),
       ),
       clipBehavior: Clip.antiAlias,
       child: Column(
         children: [
-          // Chapter title row
+          // Chapter title row with enhanced design
           Container(
             decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.centerLeft,
+                end: Alignment.centerRight,
+                colors: [
+                  Theme.of(context).colorScheme.primary.withOpacity(0.08),
+                  Colors.white,
+                ],
+                stops: const [0.0, 0.3],
+              ),
               border: Border(
                 left: BorderSide(
                   color: Theme.of(context).colorScheme.primary,
@@ -986,23 +1013,33 @@ class _BookDetailScreenState extends ConsumerState<BookDetailScreen> with Single
               ),
             ),
             child: ListTile(
-              contentPadding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+              contentPadding: const EdgeInsets.fromLTRB(16, 16, 16, 16),
               leading: Container(
-                width: 40,
-                height: 40,
+                width: 44,
+                height: 44,
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
-                  color: Theme.of(context).colorScheme.primary.withOpacity(0.15),
-                  border: Border.all(
-                    color: Theme.of(context).colorScheme.primary,
-                    width: 2,
+                  gradient: LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: [
+                      Theme.of(context).colorScheme.primary.withOpacity(0.7),
+                      Theme.of(context).colorScheme.primary,
+                    ],
                   ),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Theme.of(context).colorScheme.primary.withOpacity(0.3),
+                      blurRadius: 8,
+                      offset: const Offset(0, 3),
+                    ),
+                  ],
                 ),
                 child: Center(
                   child: Text(
                     '$index',
-                    style: TextStyle(
-                      color: Theme.of(context).colorScheme.primary,
+                    style: GoogleFonts.inter(
+                      color: Colors.white,
                       fontWeight: FontWeight.bold,
                       fontSize: 18,
                     ),
@@ -1011,27 +1048,40 @@ class _BookDetailScreenState extends ConsumerState<BookDetailScreen> with Single
               ),
               title: Text(
                 chapter.title ?? 'Chapter $index',
-                style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.bold,
-                    ),
+                style: GoogleFonts.playfairDisplay(
+                  fontWeight: FontWeight.bold,
+                  fontSize: 18,
+                  color: Colors.grey.shade800,
+                ),
               ),
               subtitle: chapter.description != null && chapter.description!.isNotEmpty
                   ? Padding(
-                      padding: const EdgeInsets.only(top: 4),
+                      padding: const EdgeInsets.only(top: 6),
                       child: Text(
                         chapter.description!,
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
-                        style: Theme.of(context).textTheme.bodyMedium,
+                        style: GoogleFonts.inter(
+                          fontSize: 14,
+                          color: Colors.grey.shade600,
+                          height: 1.4,
+                        ),
                       ),
                     )
                   : null,
               trailing: hasHeadings
                   ? null // Remove trailing icon if ExpansionTile is present
-                  : Icon(
-                      Icons.arrow_forward_ios,
-                      size: 16,
-                      color: Theme.of(context).colorScheme.primary,
+                  : Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: Theme.of(context).colorScheme.primary.withOpacity(0.1),
+                      ),
+                      child: Icon(
+                        Icons.arrow_forward_ios,
+                        size: 16,
+                        color: Theme.of(context).colorScheme.primary,
+                      ),
                     ),
           onTap: () {
                 if (hasHeadings) {

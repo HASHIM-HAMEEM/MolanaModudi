@@ -1,32 +1,24 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:logging/logging.dart';
-// import 'package:modudi/core/services/api_service.dart'; // Needed for repository provider - REMOVED
-import 'package:modudi/features/books/data/repositories/book_detail_repository_impl.dart';
-import 'package:modudi/features/books/domain/repositories/book_detail_repository.dart';
-import 'package:modudi/features/reading/domain/repositories/reading_repository.dart'; // Import Reading Repository
-import 'package:modudi/features/reading/presentation/providers/reading_provider.dart'; // Import Reading Repository Provider
-// import '../../../home/data/providers/home_data_providers.dart'; // archiveApiServiceProvider was here, no longer needed for this context
+import 'package:modudi/features/books/data/repositories/books_repository.dart';
+import 'package:modudi/features/reading/domain/repositories/reading_repository.dart';
+import 'package:modudi/features/reading/presentation/providers/reading_provider.dart';
 import 'book_detail_state.dart';
-import 'package:modudi/features/reading/presentation/providers/reading_state.dart'; // Import AI Status
+import 'package:modudi/features/reading/presentation/providers/reading_state.dart';
 
-// Provider for BookDetailRepository
-final bookDetailRepositoryProvider = Provider<BookDetailRepository>((ref) {
-  // final apiService = ref.watch(archiveApiServiceProvider); // Reuse provider from core - REMOVED
-  final readingRepository = ref.watch(readingRepositoryProvider); // Get reading repository
-  return BookDetailRepositoryImpl(
-    // apiService: apiService, // REMOVED
-    readingRepository: readingRepository,
-  );
+// Provider for BooksRepository (reuse the main books repository)
+final bookDetailRepositoryProvider = Provider<BooksRepository>((ref) {
+  return BooksRepositoryImpl();
 });
 
 // StateNotifier for Book Detail logic
 class BookDetailNotifier extends StateNotifier<BookDetailState> {
-  final BookDetailRepository _repository;
-  final ReadingRepository _readingRepository; // Add Reading Repository for AI calls
+  final BooksRepository _booksRepository;
+  final ReadingRepository _readingRepository; // For AI features and reading state
   final String _bookId;
   final _log = Logger('BookDetailNotifier');
 
-  BookDetailNotifier(this._repository, this._readingRepository, this._bookId) 
+  BookDetailNotifier(this._booksRepository, this._readingRepository, this._bookId) 
     : super(const BookDetailState()) {
       loadBookDetails(); // Load details when notifier is created
     }
@@ -38,23 +30,20 @@ class BookDetailNotifier extends StateNotifier<BookDetailState> {
     _log.info('Loading details for book ID: $_bookId...');
 
     try {
-      final details = await _repository.getBookDetails(_bookId);
+      // Get book from repository
+      final book = await _booksRepository.getBook(_bookId);
       
-      // Check if details has description field with an error message
-      if (details.description?.startsWith('Error loading book details:') == true) {
-        _log.warning('Book details returned with error description: ${details.description}');
-        state = state.copyWith(
-          status: BookDetailStatus.success, // Still mark as success to display partial details
-          bookDetail: details,
-          errorMessage: details.description, // Store error for UI feedback if needed
-        );
-      } else {
-        _log.info('Successfully loaded details for book: ${details.title}');
-        state = state.copyWith(
-          status: BookDetailStatus.success,
-          bookDetail: details,
-        );
+      if (book == null) {
+        throw Exception('Book not found');
       }
+      
+      // Use the Book model directly
+      _log.info('Successfully loaded book: ${book.title}');
+      
+      state = state.copyWith(
+        status: BookDetailStatus.success,
+        bookDetail: book,
+      );
     } catch (e, stackTrace) {
       _log.severe('Failed to load book details for $_bookId', e, stackTrace);
       state = state.copyWith(
@@ -90,7 +79,7 @@ class BookDetailNotifier extends StateNotifier<BookDetailState> {
         textToAnalyze,
         bookTitle: state.bookDetail?.title ?? _bookId,
         author: state.bookDetail?.author ?? 'Unknown',
-        language: state.bookDetail?.language, 
+        language: state.bookDetail?.defaultLanguage ?? 'en', 
       );
       
       _log.info('Successfully generated summary for book: ${state.bookDetail?.title}');
@@ -153,7 +142,7 @@ class BookDetailNotifier extends StateNotifier<BookDetailState> {
 // Using family to pass the bookId
 final bookDetailNotifierProvider = 
   StateNotifierProvider.family<BookDetailNotifier, BookDetailState, String>((ref, bookId) {
-    final repository = ref.watch(bookDetailRepositoryProvider);
-    final readingRepository = ref.watch(readingRepositoryProvider); // Watch reading repository
-    return BookDetailNotifier(repository, readingRepository, bookId);
-}); 
+  final booksRepository = ref.watch(bookDetailRepositoryProvider);
+  final readingRepo = ref.watch(readingRepositoryProvider);
+  return BookDetailNotifier(booksRepository, readingRepo, bookId);
+});
