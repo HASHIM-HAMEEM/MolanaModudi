@@ -44,9 +44,10 @@ class Bookmark {
     );
   }
 
-  //toMap method
-  Map<String, dynamic> toMap() {
+  /// Convert to JSON compatible Map
+  Map<String, dynamic> toJson() {
     return {
+      'id': id,
       'bookId': bookId,
       'chapterId': chapterId,
       'chapterTitle': chapterTitle,
@@ -56,8 +57,25 @@ class Bookmark {
       'textContentSnippet': textContentSnippet,
     };
   }
+  
+  /// Alias for toJson to maintain backward compatibility
+  Map<String, dynamic> toMap() => toJson();
 
-  //fromMap method
+  /// Create from a map that already contains the 'id' field
+  factory Bookmark.fromJson(Map<String, dynamic> map) {
+    return Bookmark(
+      id: map['id'] as String,
+      bookId: map['bookId'] as String,
+      chapterId: map['chapterId'] as String,
+      chapterTitle: map['chapterTitle'] as String,
+      headingId: map['headingId'] as String,
+      headingTitle: map['headingTitle'] as String,
+      timestamp: map['timestamp'] as Timestamp,
+      textContentSnippet: map['textContentSnippet'] as String?,
+    );
+  }
+  
+  /// Traditional fromMap method that takes separate id and map parameters
   factory Bookmark.fromMap(String id, Map<String, dynamic> map) {
     return Bookmark(
       id: id,

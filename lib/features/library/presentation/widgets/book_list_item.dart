@@ -49,6 +49,7 @@ class BookListItem extends StatelessWidget {
                 borderRadius: BorderRadius.circular(4.0),
                 child: CachedNetworkImage(
                   imageUrl: coverImageUrl,
+                  cacheKey: 'thumb_${book.firestoreDocId}',
                   width: imageWidth,
                   height: imageHeight,
                   fit: BoxFit.cover,
@@ -71,33 +72,25 @@ class BookListItem extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    // Title & Category Chip
+                    // Title and Author Row
                     Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Expanded(
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              ConstrainedBox(
-                                constraints: const BoxConstraints(maxWidth: 200), // Limit title width
-                                child: Text(
-                                  title,
-                                  style: bookItemStyles.titleStyle,
-                                  maxLines: 2,
-                                  overflow: TextOverflow.ellipsis,
-                                ),
+                              Text(
+                                title,
+                                style: bookItemStyles.titleStyle,
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
                               ),
                               const SizedBox(height: 2.0),
-                              ConstrainedBox(
-                                constraints: const BoxConstraints(maxWidth: 200), // Limit author width
-                                child: Text(
-                                  author,
-                                  style: bookItemStyles.authorStyle,
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                ),
+                              Text(
+                                author,
+                                style: bookItemStyles.authorStyle,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
                               ),
                             ],
                           ),

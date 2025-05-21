@@ -3,6 +3,8 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:logging/logging.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:modudi/core/cache/cache_service.dart';
+import 'package:modudi/core/cache/config/cache_constants.dart';
 
 import 'package:modudi/features/settings/presentation/providers/settings_provider.dart';
 import 'package:modudi/core/themes/app_color.dart';
@@ -129,6 +131,20 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                 ),
               );
+            },
+          ),
+          const SizedBox(height: 16),
+          _buildSettingCard(
+            context,
+            'Cache Management',
+            'View usage and clear cached content',
+            Icons.storage_outlined,
+            colors,
+            textColor,
+            secondaryTextColor,
+            () {
+              _log.info('Cache Management tapped');
+              _showCacheManagementDialog(context);
             },
           ),
           const SizedBox(height: 32),
@@ -840,6 +856,113 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  // Cache management dialog that shows cache statistics and provides options to clear cache
+  Future<void> _showCacheManagementDialog(BuildContext context) async {
+    final cacheService = CacheService();
+    await cacheService.initialize();
+    
+    // Get cache statistics
+    final cacheStats = await cacheService.getCacheSizeStats();
+    
+    // Extract sizes from the stats map
+    final booksSize = cacheStats['books'] ?? 0;
+    final imagesSize = cacheStats['images'] ?? 0;
+    final bookStructuresSize = cacheStats['bookStructures'] ?? 0;
+    final chaptersSize = cacheStats['chapters'] ?? 0;
+    
+    final totalCacheSize = cacheStats['total'] ?? 0;
+    final formatSize = (int bytes) {
+      if (bytes < 1024) return '$bytes B';
+      if (bytes < 1024 * 1024) return '${(bytes / 1024).toStringAsFixed(1)} KB';
+      return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
+    };
+    
+    if (!context.mounted) return;
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Cache Management'),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('Total cache size: ${formatSize(totalCacheSize)}'),
+              const SizedBox(height: 16),
+              _buildCacheInfoRow('Books', formatSize(booksSize)),
+              _buildCacheInfoRow('Images', formatSize(imagesSize)),
+              _buildCacheInfoRow('Book structures', formatSize(bookStructuresSize)),
+              _buildCacheInfoRow('Chapters', formatSize(chaptersSize)),
+              const SizedBox(height: 16),
+              const Text(
+                'Clearing the cache will free up storage space but may cause slower loading times when you next access content.',
+                style: TextStyle(fontSize: 12, fontStyle: FontStyle.italic),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () async {
+              // Clear only image cache
+              await cacheService.clearBox(CacheConstants.thumbnailMetadataBoxName);
+              await cacheService.clearBox(CacheConstants.imageMetadataBoxName);
+              if (context.mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Image cache cleared')),
+                );
+                Navigator.of(context).pop();
+              }
+            },
+            child: const Text('Clear Image Cache'),
+          ),
+          TextButton(
+            style: TextButton.styleFrom(
+              foregroundColor: Colors.red,
+            ),
+            onPressed: () async {
+              // Clear all caches
+              await cacheService.clearBox(CacheConstants.booksBoxName);
+              await cacheService.clearBox(CacheConstants.volumesBoxName);
+              await cacheService.clearBox(CacheConstants.chaptersBoxName);
+              await cacheService.clearBox(CacheConstants.headingsBoxName);
+              await cacheService.clearBox(CacheConstants.thumbnailMetadataBoxName);
+              await cacheService.clearBox(CacheConstants.imageMetadataBoxName);
+              await cacheService.clearBox(CacheConstants.bookStructuresBoxName);
+              
+              if (context.mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('All caches cleared')),
+                );
+                Navigator.of(context).pop();
+              }
+            },
+            child: const Text('Clear All Caches'),
+          ),
+        ],
+      ),
+    );
+  }
+  
+  // Helper widget to display cache info with label and value
+  Widget _buildCacheInfoRow(String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4.0),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(label),
+          Text(value, style: const TextStyle(fontWeight: FontWeight.bold)),
+        ],
       ),
     );
   }

@@ -37,7 +37,6 @@ class HomeNotifier extends StateNotifier<HomeState> {
 
       // Adjust type casting if getFeaturedBooks returns BookModel
       final featuredBooks = results[0] as List<Book>; 
-      final baseCategories = results[1] as List<CategoryEntity>;
       final videoLectures = results[2] as List<VideoEntity>;
 
       // Get library books for accurate category counts

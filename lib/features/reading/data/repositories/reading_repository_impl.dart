@@ -50,8 +50,8 @@ class ReadingRepositoryImpl implements ReadingRepository {
         _log.info('Book found in cache for ID: $bookId');
         final cachedBook = Book.fromMap(bookId, cacheResult.data!);
         
-        // Mark as from cache
-        final bookWithCacheFlag = cachedBook.copyWith(isFromCache: true);
+        // No need to mark as from cache as that parameter doesn't exist
+        final bookWithCacheFlag = cachedBook;
         
         // Update book access priority to improve cache retention
         await _cacheService.updateBookPriority(bookId, CachePriorityLevel.high);
@@ -95,7 +95,7 @@ class ReadingRepositoryImpl implements ReadingRepository {
         _log.info('Device is offline, can only use cache data');
         if (cacheResult.hasData) {
           // Return whatever we have from cache even if incomplete
-          return Book.fromMap(bookId, cacheResult.data!).copyWith(isFromCache: true);
+          return Book.fromMap(bookId, cacheResult.data!);
         } else {
           throw Exception('No cached data available for book ID: $bookId and device is offline');
         }
@@ -152,7 +152,7 @@ class ReadingRepositoryImpl implements ReadingRepository {
           // Create the complete book with all data
           final completeBook = bookFromFirestoreMetadata.copyWith(
               volumes: firestoreVolumes,
-              isFromCache: false // It's fresh from Firestore
+              // Fresh from Firestore
               );
 
           // Cache the COMPLETE book data (including volumes) with a long TTL
@@ -179,7 +179,7 @@ class ReadingRepositoryImpl implements ReadingRepository {
             ttl: const Duration(days: 30),
           );
           // Return book with metadata only, marked as not from cache
-          return bookFromFirestoreMetadata.copyWith(isFromCache: false);
+          return bookFromFirestoreMetadata;
         }  
       } catch (firestoreError) {
         _log.severe('Firestore error: $firestoreError');
@@ -187,7 +187,7 @@ class ReadingRepositoryImpl implements ReadingRepository {
         // STEP 3: If Firestore fails but we have cache, return cache
         if (cacheResult.hasData) {
           _log.info('Firestore failed but returning cached book data as fallback');
-          return Book.fromMap(bookId, cacheResult.data!).copyWith(isFromCache: true);
+          return Book.fromMap(bookId, cacheResult.data!);
         }
         
         // If all else fails, rethrow to trigger the fallback book creation

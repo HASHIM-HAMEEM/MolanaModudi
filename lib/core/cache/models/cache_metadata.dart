@@ -41,6 +41,9 @@ class CacheMetadata {
   @HiveField(11)
   final Map<String, dynamic>? properties;
 
+  @HiveField(12) // New field for pinning
+  final bool isPinned;
+
   CacheMetadata({
     required this.originalKey,
     required this.boxName,
@@ -54,6 +57,7 @@ class CacheMetadata {
     this.accessCount = 0,
     int? lastAccessTimestamp,
     this.properties,
+    this.isPinned = false, // Initialize isPinned
   }) : 
     ttlMillis = ttlMillis ?? const Duration(days: 7).inMilliseconds,
     dataSizeBytes = dataSizeBytes ?? 0,
@@ -75,6 +79,7 @@ class CacheMetadata {
       accessCount: map['accessCount'] as int? ?? 0,
       lastAccessTimestamp: map['lastAccessTimestamp'] as int?,
       properties: map['properties'] as Map<String, dynamic>?,
+      isPinned: map['isPinned'] as bool? ?? false, // Add isPinned to fromMap
     );
   }
   
@@ -93,11 +98,13 @@ class CacheMetadata {
       'accessCount': accessCount,
       'lastAccessTimestamp': lastAccessTimestamp,
       'properties': properties,
+      'isPinned': isPinned, // Add isPinned to toMap
     };
   }
 
   /// Check if this cached item is expired
   bool get isExpired {
+    if (isPinned) return false; // Pinned items are never considered expired by TTL
     final now = DateTime.now().millisecondsSinceEpoch;
     return now > (timestamp + ttlMillis);
   }
@@ -126,22 +133,45 @@ class CacheMetadata {
     return now - timestamp;
   }
 
+  /// Create a copy of this metadata with new values
+  CacheMetadata copyWith({
+    String? originalKey,
+    String? boxName,
+    int? timestamp,
+    int? ttlMillis,
+    int? dataSizeBytes,
+    String? language,
+    String? direction,
+    String? source,
+    String? hash,
+    int? accessCount,
+    int? lastAccessTimestamp,
+    Map<String, dynamic>? properties,
+    bool? isPinned,
+  }) {
+    return CacheMetadata(
+      originalKey: originalKey ?? this.originalKey,
+      boxName: boxName ?? this.boxName,
+      timestamp: timestamp ?? this.timestamp,
+      ttlMillis: ttlMillis ?? this.ttlMillis,
+      dataSizeBytes: dataSizeBytes ?? this.dataSizeBytes,
+      language: language ?? this.language,
+      direction: direction ?? this.direction,
+      source: source ?? this.source,
+      hash: hash ?? this.hash,
+      accessCount: accessCount ?? this.accessCount,
+      lastAccessTimestamp: lastAccessTimestamp ?? this.lastAccessTimestamp,
+      properties: properties ?? this.properties,
+      isPinned: isPinned ?? this.isPinned,
+    );
+  }
+
   /// Create a copy of this metadata with incremented access count
   CacheMetadata incrementAccessCount() {
     final now = DateTime.now().millisecondsSinceEpoch;
-    return CacheMetadata(
-      originalKey: originalKey,
-      boxName: boxName,
-      timestamp: timestamp,
-      ttlMillis: ttlMillis,
-      dataSizeBytes: dataSizeBytes,
-      language: language,
-      direction: direction,
-      source: source,
-      hash: hash,
+    return copyWith( // Use copyWith
       accessCount: accessCount + 1,
       lastAccessTimestamp: now,
-      properties: properties,
     );
   }
 

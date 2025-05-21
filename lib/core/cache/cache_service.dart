@@ -21,6 +21,7 @@ import 'models/cache_priority.dart';
 import 'models/download_progress.dart';
 import 'utils/cache_logger.dart';
 import 'utils/concurrency_utils.dart';
+import 'utils/cache_metrics_service.dart'; 
 
 /// Central service for managing all types of caches in the app
 class CacheService {
@@ -31,6 +32,7 @@ class CacheService {
   final PreferencesCacheManager _prefsManager;
   final NetworkInfo _networkInfo;
   final CacheConfig _config;
+  CacheMetricsService? _metricsService; 
 
   // Initialize with a default value to prevent LateInitializationError
   late final VideoCacheManager _videoCacheManager;
@@ -68,10 +70,14 @@ class CacheService {
   final Map<String, dynamic> _memoryCacheMetadata = {};
   final int _maxMemoryCacheSize = 100 * 1024 * 1024;
   int _currentMemoryCacheSize = 0;
-  
+
+  // Concurrency guard: Track in-flight network fetches per cache key
+  // Ensures only one network request is made for the same key at a time
+  final Map<String, Future<dynamic>> _inFlightFetches = {};
+
   // Memory cache TTL 
   static const Duration _memoryCacheTtl = Duration(hours: 8);
-  
+      
   // Keep track of which screen each cached item belongs to
   // This allows for efficient release of screen-specific cache when navigating away
   final Map<String, Map<String, dynamic>> _screenMemoryCaches = {};
@@ -100,6 +106,12 @@ class CacheService {
     _prefsManager = prefsManager ?? PreferencesCacheManager(),
     _networkInfo = networkInfo ?? NetworkInfo(),
     _config = config ?? CacheConfig.defaultConfig {
+    if (_config.enableAnalytics && _config.trackCacheMetrics) {
+      _metricsService = CacheMetricsService();
+      _log.info('CacheMetricsService initialized.');
+    } else {
+      _log.info('CacheMetricsService not initialized (analytics or tracking disabled).');
+    }
   }
 
   static CacheService? _instance;
@@ -314,7 +326,6 @@ class CacheService {
   }) async {
     if (!_initialized) await initialize();
 
-    // Apply policy, defaulting to config if not provided
     final effectivePolicy = policy ?? config.CachePolicy.cacheFirst;
     final effectiveTtl = ttl ?? _config.defaultTtl;
     
@@ -335,6 +346,7 @@ class CacheService {
           final updatedMetadata = metadata.incrementAccessCount();
           await _saveCacheMetadata(key, updatedMetadata); // Save to persistent store
           _memoryCacheMetadata[key] = updatedMetadata; // Update in-memory metadata cache
+          _metricsService?.recordHit(key); // ADDED: Record hit
           return CacheResult<T>(
             data: memoryCached,
             source: CacheResultSource.cache,
@@ -352,6 +364,7 @@ class CacheService {
           );
           await _saveCacheMetadata(key, newMetadata); // Save to persistent store
           _memoryCacheMetadata[key] = newMetadata; // Add to in-memory metadata cache
+          _metricsService?.recordHit(key); // ADDED: Record hit
           return CacheResult<T>(
             data: memoryCached,
             source: CacheResultSource.cache,
@@ -361,9 +374,11 @@ class CacheService {
         }
       }
       
+      CacheResult<T>? cachedResult;
+      
       // STEP 2: Check persistent storage if policy allows it
       if (effectivePolicy != config.CachePolicy.networkOnly) {
-        final cachedResult = await getCachedData<T>(key: key, boxName: boxName);
+        cachedResult = await getCachedData<T>(key: key, boxName: boxName);
         
         if (cachedResult.hasData) {
           // Associate with screen if provided
@@ -387,6 +402,7 @@ class CacheService {
           if (effectivePolicy == config.CachePolicy.cacheOnly ||
               !isStale) {
             // Ensure the result uses the potentially updated metadata
+            _metricsService?.recordHit(key); // ADDED: Record hit
             return CacheResult<T>(
               data: cachedResult.data,
               source: cachedResult.source,
@@ -406,6 +422,7 @@ class CacheService {
               ttl: effectiveTtl
             );
             // Ensure the result uses the potentially updated metadata
+            _metricsService?.recordHit(key); // ADDED: Record hit
             return CacheResult<T>(
               data: cachedResult.data,
               source: cachedResult.source,
@@ -427,6 +444,7 @@ class CacheService {
               );
             }
             // Ensure the result uses the potentially updated metadata
+            _metricsService?.recordHit(key); // ADDED: Record hit
             return CacheResult<T>(
               data: cachedResult.data,
               source: cachedResult.source,
@@ -438,50 +456,98 @@ class CacheService {
         }
       }
             
-      // STEP 3: Network fetch (either cache miss or networkFirst/networkOnly policy)
-      if (effectivePolicy != config.CachePolicy.cacheOnly) {
+      // STEP 4: Fetch from network if allowed by policy and connectivity
+      final isOnline = await isConnected();
+      if (isOnline &&
+          (effectivePolicy == config.CachePolicy.networkFirst ||
+              effectivePolicy == config.CachePolicy.cacheFirst ||
+              effectivePolicy == config.CachePolicy.networkOnly)) {
         try {
-          // Check connectivity before attempting network fetch
-          final isOnline = await isConnected();
-          if (!isOnline) {
-            throw Exception('Device is offline');
-          }
-          
-          final networkResult = await networkFetch();
-          
-          // Cache the network result (both in persistent storage and memory)
-          await cacheData(
-            key: key, 
-            data: networkResult, 
-            boxName: boxName, 
-            ttl: effectiveTtl,
-            screenId: screenId,
-          );
-          
-          return CacheResult<T>(
-            data: networkResult,
-            source: CacheResultSource.network,
-            isCacheHit: false
-          );
-        } catch (networkError) {
-          _log.warning('Network fetch failed for key $key: $networkError');
-          
-          // For networkFirst or cacheFirst, fall back to cache even if stale
-          if (effectivePolicy == config.CachePolicy.networkFirst ||
-              effectivePolicy == config.CachePolicy.cacheFirst) {
-            final fallbackResult = await getCachedData<T>(key: key, boxName: boxName);
-            if (fallbackResult.hasData) {
-              // Mark as stale since network fetch failed
+          // Check for an in-flight fetch for this key
+          if (_inFlightFetches.containsKey(key)) {
+            _log.fine('Request for key $key is already in flight. Awaiting existing future.');
+            try {
+              final T inFlightData = await _inFlightFetches[key]! as T;
+              // Successfully got data from an in-flight request. 
+              // The original fetch that initiated this will handle caching and metadata.
+              // We just return the data with network source.
               return CacheResult<T>(
-                data: fallbackResult.data,
-                source: CacheResultSource.cache,
-                isCacheHit: true
+                data: inFlightData,
+                source: CacheResultSource.network,
+                isCacheHit: false // Ensuring this is present for lint ID 54690480-0308-42aa-8c48-488235af3949
+              );
+            } catch (e) {
+              _log.warning('In-flight fetch for $key failed: $e. Returning stale data if available.');
+              if (cachedResult != null && cachedResult.hasData) {
+                return cachedResult.copyWith(source: CacheResultSource.cacheStaleNetworkError); // Indicate stale cache due to network error
+              }
+              return CacheResult<T>(
+                error: CacheError('In-flight network fetch failed: $e', StackTrace.current),
+                source: CacheResultSource.networkError,
+                isCacheHit: false // Ensuring this is present
               );
             }
           }
-          
-          // Re-throw if we can't recover
-          rethrow;
+
+          // No in-flight fetch, proceed with new network request
+          final Future<T> networkCall = networkFetch();
+          _inFlightFetches[key] = networkCall;
+          _log.fine('Added $key to _inFlightFetches.');
+
+          try {
+            final T fetchedData = await networkCall;
+            _log.fine('Network fetch successful for key: $key');
+            
+            // Cache the newly fetched data
+            final newMetadata = await cacheData<T>(
+              key: key, 
+              data: fetchedData, 
+              boxName: boxName, 
+              ttl: effectiveTtl,
+              // 기존 메타데이터가 있다면 isPinned 상태를 유지
+              isPinned: cachedResult?.metadata?.isPinned ?? false 
+            );
+            
+            // Put into memory cache as well
+            _putInMemoryCache(key, fetchedData, newMetadata);
+            if (screenId != null) {
+               _screenMemoryCaches.putIfAbsent(screenId, () => {})[key] = fetchedData;
+            }
+            
+            return CacheResult<T>(
+              data: fetchedData, 
+              source: CacheResultSource.network, 
+              metadata: newMetadata,
+              isCacheHit: false // Ensuring this is present for lint ID c611bdee-1f83-4c2f-86f2-6935e2ae7b63
+            );
+          } catch (e, stackTrace) {
+            _log.warning('Network fetch failed for key $key: $e');
+            // If network fetch fails and we had a stale cache, return it rather than erroring out
+            if (cachedResult != null && cachedResult.hasData) {
+              return cachedResult.copyWith(source: CacheResultSource.cacheStaleNetworkError); // Indicate stale cache due to network error
+            }
+            return CacheResult<T>(
+              error: CacheError('Network fetch failed: $e', stackTrace), 
+              source: CacheResultSource.networkError,
+              isCacheHit: false // Ensuring this is present for lint ID 7c2083a5-d400-4417-a8c0-7b1f2bb6cdc8
+            );
+          } finally {
+            _inFlightFetches.remove(key);
+            _log.fine('Removed $key from _inFlightFetches.');
+          }
+        } catch (e) {
+          _inFlightFetches.remove(key);
+          _log.warning('Error fetching data for key $key: $e');
+          // If network fetch fails and we had a stale cache, return it rather than erroring out
+          if (cachedResult != null && cachedResult.hasData) {
+            return cachedResult;
+          }
+          return CacheResult<T>(
+            data: null,
+            source: CacheResultSource.error,
+            isCacheHit: false,
+            error: e,
+          );
         }
       }
       
@@ -494,12 +560,13 @@ class CacheService {
   }
 
   /// Cache data directly in both persistent storage and memory cache
-  Future<void> cacheData<T>({
+  Future<CacheMetadata> cacheData<T>({
     required String key,
     required T data,
     required String boxName,
     Duration? ttl,
     String? screenId, 
+    bool isPinned = false, // Added isPinned parameter back
   }) async {
     if (!_initialized) await initialize();
 
@@ -513,11 +580,12 @@ class CacheService {
         accessCount: 1,
         ttlMillis: (ttl ?? _config.defaultTtl).inMilliseconds,
         dataSizeBytes: CacheUtils.calculateObjectSize(data),
+        isPinned: isPinned, // Use isPinned parameter here
         // eTag and version can be set later if available from network responses
       );
       
       // STEP 1: Add to memory cache for ultra-fast access
-      _addToMemoryCache(key, data, metadata, screenId: screenId);
+      _putInMemoryCache(key, data, metadata, screenId: screenId);
       
       // STEP 2: Store data in persistent cache
       await _hiveManager.put(
@@ -532,10 +600,13 @@ class CacheService {
       // STEP 3: Store the authoritative CacheMetadata object using CacheService's mechanism
       await _saveCacheMetadata(key, metadata);
       
+      _metricsService?.recordWrite(key); // ADDED: Record write
       CacheLogger.logCacheWrite(key, boxName, metadata.dataSizeBytes); // Use dataSizeBytes from CacheService's metadata
       _log.fine('Cached data for key: $key with TTL: ${metadata.ttl.inHours} hours');
+      return metadata; // Return the created metadata
     } catch (e) {
       _log.warning('Error caching data for key $key: $e');
+      rethrow;
     }
   }
 
@@ -560,16 +631,13 @@ class CacheService {
   }
   
   /// Add data to memory cache
-  void _addToMemoryCache<T>(String key, T data, CacheMetadata? metadata, {String? screenId}) {
+  void _putInMemoryCache<T>(String key, T data, CacheMetadata? metadata, {String? screenId}) {
     if (screenId != null) {
       _screenMemoryCaches.putIfAbsent(screenId, () => {})[key] = data;
-      // _log.finer('Added $key to screen-specific memory cache for $screenId');
     } else {
-      // Add to general memory cache if not screen-specific or if general is also desired
       int sizeOfNewData = 0;
       if (metadata != null) {
-        // The metadata is not null here, and the lint suggests dataSizeBytes is also non-nullable
-        sizeOfNewData = metadata.dataSizeBytes; // Direct assignment as compiler confirms it's non-null
+        sizeOfNewData = metadata.dataSizeBytes;
       }
 
       if (_currentMemoryCacheSize + sizeOfNewData > _maxMemoryCacheSize) {
@@ -577,15 +645,11 @@ class CacheService {
       }
       _memoryCache[key] = data;
       _memoryCacheTimestamps[key] = DateTime.now().millisecondsSinceEpoch;
-      if (metadata != null) { // Check for null metadata before accessing its properties or storing it
-        _memoryCacheMetadata[key] = metadata; // Store full metadata if available
-        final int? dataSize = metadata.dataSizeBytes; // dataSize is int?
-        _currentMemoryCacheSize += (dataSize ?? 0); // Apply ?? 0 to dataSize
+      if (metadata != null) { 
+        _memoryCacheMetadata[key] = metadata;
+        final int? dataSize = metadata.dataSizeBytes;
+        _currentMemoryCacheSize += (dataSize ?? 0);
       }
-      // If metadata or metadata.dataSizeBytes is null, sizeOfNewData is 0.
-      // If metadata is null, _currentMemoryCacheSize is not increased here, 
-      // which means items with null metadata (and thus unknown size) don't contribute to memory pressure based on this logic.
-      // This might need review if items with null metadata should still consume a nominal size or be estimated.
     }
   }
 
@@ -605,36 +669,41 @@ class CacheService {
   }
   
   /// Evict items from memory cache to free up space
-  void _evictFromMemoryCache(int requiredBytes) {
-    // Sort by access time (oldest first)
-    final entries = _memoryCacheTimestamps.entries.toList()
-      ..sort((a, b) => a.value.compareTo(b.value));
-    
-    int freedBytes = 0;
-    int entriesRemoved = 0;
-    
-    for (final entry in entries) {
-      if (freedBytes >= requiredBytes) break;
-      
-      final key = entry.key;
-      if (_memoryCache.containsKey(key)) {
-        final data = _memoryCache[key];
-        final estimatedSize = CacheUtils.calculateObjectSize(data);
+  Future<void> _evictFromMemoryCache(int requiredBytes) async {
+    await _evictionLock.synchronized(() async {
+      _log.info('Attempting to evict $requiredBytes bytes from memory cache. Current size: $_currentMemoryCacheSize');
+      if (_currentMemoryCacheSize <= _maxMemoryCacheSize && requiredBytes <= 0) return;
+
+      List<MapEntry<String, int>> sortedItems = _memoryCacheTimestamps.entries.toList()
+        ..sort((a, b) => a.value.compareTo(b.value)); // Sort by oldest
+
+      int bytesFreed = 0;
+      for (var itemToEvict in sortedItems) {
+        if (bytesFreed >= requiredBytes) break;
+
+        final itemData = _memoryCache[itemToEvict.key];
+        final itemMetadata = _memoryCacheMetadata[itemToEvict.key] as CacheMetadata?;
+
+        if (itemMetadata?.isPinned == true) { // Check if item is pinned
+          _log.finer('Skipping eviction of pinned memory item: ${itemToEvict.key}');
+          continue; // Do not evict pinned items
+        }
+
+        final itemSize = CacheUtils.calculateObjectSize(itemData).round(); // CORRECTED: Used CacheUtils and .round()
         
-        _memoryCache.remove(key);
-        _memoryCacheTimestamps.remove(key);
-        
-        freedBytes += estimatedSize;
-        entriesRemoved++;
+        _memoryCache.remove(itemToEvict.key);
+        _memoryCacheTimestamps.remove(itemToEvict.key);
+        _memoryCacheMetadata.remove(itemToEvict.key);
+        _currentMemoryCacheSize -= itemSize; // Ensure itemSize is int
+        bytesFreed += itemSize; // Ensure itemSize is int
+
+        _metricsService?.recordEviction(itemToEvict.key, reason: 'memory_pressure_eviction'); // CORRECTED: Use key
+        _log.fine('Evicted ${itemToEvict.key} ($itemSize bytes) from memory cache.');
       }
-    }
-    
-    _currentMemoryCacheSize -= freedBytes;
-    if (_currentMemoryCacheSize < 0) _currentMemoryCacheSize = 0;
-    
-    _log.fine('Evicted $entriesRemoved items from memory cache, freed ${_formatSize(freedBytes)}');
+      _log.info('Freed $bytesFreed bytes from memory cache. New size: $_currentMemoryCacheSize');
+    });
   }
-  
+
   /// Pre-load a screen's data into memory cache
   /// This is useful for navigation performance optimization
   Future<void> preloadScreenData(String screenId, List<String> keys, List<String> boxNames) async {
@@ -683,6 +752,7 @@ class CacheService {
         _log.fine('Memory cache hit for key: $key');
         final metadata = _memoryCacheMetadata[key] as CacheMetadata?;
         if (metadata != null) {
+          _metricsService?.recordHit(key); // ADDED: Record hit
           return CacheResult<T>(
             data: memoryCached,
             source: CacheResultSource.cache,
@@ -708,11 +778,10 @@ class CacheService {
       // Check persistent storage using the HiveCacheManager
       try {
         // Get the Hive box through the manager
-        final box = await Hive.openBox(boxName);
-        final dynamic rawData = await box.get(key);
-        
-        if (rawData == null) {
+        final List<String> keysInBox = await _hiveManager.getAllKeys(boxName); // NEW - Corrected
+        if (!keysInBox.contains(key)) { // NEW - Corrected
           _log.fine('Cache miss for key: $key');
+          _metricsService?.recordMiss(key); // ADDED: Record miss
           return CacheResult<T>(
             data: null,
             source: CacheResultSource.notFound,
@@ -723,7 +792,7 @@ class CacheService {
         // Try to convert the raw data to the expected type
         T? typedData;
         try {
-          typedData = rawData as T;
+          typedData = await _hiveManager.get(key: key, boxName: boxName) as T; // NEW - Corrected with named arguments
         } catch (e) {
           _log.warning('Type conversion error for cached data: $e');
           return CacheResult<T>(
@@ -738,8 +807,9 @@ class CacheService {
         final metadata = await _getCacheMetadata(key);
         
         // Add to memory cache for faster subsequent access
-        _addToMemoryCache(key, typedData, metadata);
+        _putInMemoryCache(key, typedData, metadata);
         
+        _metricsService?.recordHit(key); // ADDED: Record hit
         return CacheResult<T>(
           data: typedData,
           source: CacheResultSource.cache,
@@ -962,21 +1032,22 @@ class CacheService {
     
     _log.info('Cleaning memory cache, current size: ${_formatSize(_currentMemoryCacheSize)}');
     
-    // Sort by timestamp (oldest first)
+    // Sort by access time (oldest first)
     final entries = _memoryCacheTimestamps.entries.toList()
-      ..sort((a, b) => a.value.compareTo(b.value));
-    
-    // Remove oldest items until we're below 70% capacity
+      ..sort((a, b) => a.value.compareTo(b.value)); // Sort by oldest
+
     int removedCount = 0;
     for (final entry in entries) {
       if (_currentMemoryCacheSize <= _maxMemoryCacheSize * 0.7) break;
       
       final key = entry.key;
       _removeFromMemoryCache(key);
+      _metricsService?.recordEviction(key, reason: 'memory_pressure_cleanup'); // CORRECTED: Use key
       removedCount++;
     }
     
     _log.info('Memory cache cleanup complete. Removed $removedCount items, new size: ${_formatSize(_currentMemoryCacheSize)}');
+    // REMOVED: _metricsService?.recordEviction(removedCount, reason: 'memory_pressure'); // This was incorrect
   }
   
   /// Clear expired items from cache
@@ -990,7 +1061,7 @@ class CacheService {
       for (final metaKey in metadataBox.keys) {
         if (metaKey.startsWith('metadata:')) {
           final metadata = metadataBox.get(metaKey);
-          if (metadata != null && metadata.isExpired) {
+          if (metadata != null && metadata.isExpired && !metadata.isPinned) {
             // Extract the original cache key and box name from metadata key
             final originalKey = metaKey.substring('metadata:'.length);
             expiredKeys.add(originalKey);
@@ -1007,11 +1078,17 @@ class CacheService {
             final boxName = parts[0];
             final key = parts.sublist(1).join(':'); 
             
-            final box = await Hive.openBox(boxName);
-            await box.delete(key);
+            final bool itemExists = await _hiveManager.exists(key: key, boxName: boxName); // NEW - Corrected
+            if (!itemExists) {
+              _log.warning('Expired cache item $key in box $boxName does not exist, skipping deletion');
+              continue;
+            }
+            
+            await _hiveManager.delete(key, boxName);
             await metadataBox.delete('metadata:$expiredKey');
             
             _log.fine('Deleted expired cache for key: $key in box: $boxName');
+            _metricsService?.recordEviction(expiredKey, reason: 'expired'); // ADDED: Record eviction
           }
         } catch (e) {
           _log.warning('Error deleting expired cache for key $expiredKey: $e');
@@ -1096,29 +1173,64 @@ class CacheService {
           }
 
           try {
-            final headingContent = await fetchHeadingContent(headingId);
+            // Basic retry mechanism for fetching heading content
+            int retryCount = 0;
+            const int maxRetries = 2;
+            bool success = false;
+            Map<String, dynamic>? headingContent;
             
-            // Cache the fetched heading content
-            if (headingContent.isNotEmpty) { // Ensure there's something to cache
+            while (retryCount <= maxRetries && !success) {
+              try {
+                headingContent = await fetchHeadingContent(headingId);
+                if (headingContent.isNotEmpty) {
+                  success = true;
+                } else {
+                  // Empty content, try again if retries left
+                  _log.warning('Received empty content for heading $headingId in book $bookId, attempt ${retryCount + 1}');
+                  retryCount++;
+                  if (retryCount <= maxRetries) {
+                    await Future.delayed(Duration(milliseconds: 500 * retryCount));
+                  }
+                }
+              } catch (e) {
+                // Error fetching content, try again if retries left
+                _log.warning('Error fetching content for heading $headingId in book $bookId: $e, attempt ${retryCount + 1}');
+                retryCount++;
+                if (retryCount <= maxRetries) {
+                  await Future.delayed(Duration(milliseconds: 500 * retryCount));
+                }
+              }
+            }
+            
+            // Cache the content if we got it successfully
+            if (success && headingContent != null && headingContent.isNotEmpty) {
+              // Use consistent key pattern - same as used in getHeadingContent
               await cacheData(
                 key: '${CacheConstants.headingContentKeyPrefix}$headingId',
-                data: headingContent, // This is the Map<String, dynamic>
+                data: headingContent,
                 boxName: CacheConstants.contentBoxName,
-                ttl: CacheConstants.bookCacheTtl, // Consistent TTL
+                ttl: CacheConstants.bookCacheTtl, // Standard TTL for consistency
               );
               _log.finer('Cached content for heading $headingId during bulk download of book $bookId');
             } else {
-              _log.warning('Skipping cache for empty/invalid content for heading $headingId in book $bookId');
+              _log.warning('Failed to cache content for heading $headingId after $maxRetries retries');
             }
             
+            // Update progress regardless of success
             completedHeadings++;
             currentProgress = currentProgress.copyWith(
-              completedItems: completedHeadings + 1, 
+              completedItems: completedHeadings + 1, // +1 for the book data
             );
             _downloadProgressController.add(currentProgress);
+            
           } catch (e) {
-            _log.warning('Error downloading content for heading $headingId: $e');
-            // Continue with other headings even if one fails
+            // Catch any uncaught exceptions to ensure the loop continues
+            _log.warning('Unexpected error processing heading $headingId for book $bookId: $e');
+            completedHeadings++;
+            currentProgress = currentProgress.copyWith(
+              completedItems: completedHeadings + 1,
+            );
+            _downloadProgressController.add(currentProgress);
           }
         }
         
@@ -1138,6 +1250,139 @@ class CacheService {
       
       return completer.future;
     });
+  }
+  
+  /// Prefetch all content for a book - optimizes the reading experience by pre-caching
+  /// book data, headings, and content in advance
+  Future<void> prefetchBookContent({
+    required String bookId,
+    required Future<Map<String, dynamic>> Function() fetchBookData,
+    required Future<List<dynamic>> Function() fetchHeadings,
+    required Future<Map<String, dynamic>> Function(String headingId) fetchHeadingContent,
+    required List<String> imageUrls,
+    void Function(double progress)? onProgress,
+  }) async {
+    if (!_initialized) await initialize();
+    
+    _log.info('Starting prefetch for book $bookId');
+    double overallProgress = 0.0;
+    final reportProgress = (double progress) {
+      overallProgress = progress;
+      onProgress?.call(progress);
+    };
+    
+    try {
+      // Step 1: Check if book is already fully downloaded
+      if (await isBookDownloaded(bookId)) {
+        _log.info('Book $bookId is already fully downloaded, skipping prefetch');
+        reportProgress(1.0);
+        return;
+      }
+      
+      // Step 2: Fetch and cache book data
+      _log.info('Prefetching book data for $bookId');
+      reportProgress(0.1);
+      final bookData = await fetchBookData();
+      await cacheData(
+        key: '${CacheConstants.bookKeyPrefix}$bookId',
+        data: bookData,
+        boxName: CacheConstants.booksBoxName,
+        ttl: const Duration(days: 30),
+      );
+      
+      // Step 3: Fetch and cache headings
+      _log.info('Prefetching headings for book $bookId');
+      reportProgress(0.2);
+      final headings = await fetchHeadings();
+      await cacheData(
+        key: '${CacheConstants.bookKeyPrefix}${bookId}_headings',
+        data: headings,
+        boxName: CacheConstants.headingsBoxName,
+        ttl: const Duration(days: 30),
+      );
+      
+      // Step 4: Fetch and cache each heading's content in parallel with rate limiting
+      _log.info('Prefetching content for ${headings.length} headings');
+      final validHeadings = headings.where((heading) => 
+          heading is Map && heading['id'] != null).toList();
+      
+      int completedHeadings = 0;
+      final totalHeadings = validHeadings.length;
+      
+      // Process in batches of 3 to avoid overloading network/memory
+      for (int i = 0; i < totalHeadings; i += 3) {
+        final batch = validHeadings.skip(i).take(3).toList();
+        final futures = <Future<void>>[];
+        
+        for (final heading in batch) {
+          final String headingId = heading['id'].toString();
+          futures.add(() async {
+            try {
+              // Check if already cached
+              final cacheKey = '${CacheConstants.headingContentKeyPrefix}$headingId';
+              final cached = await getCachedData(
+                key: cacheKey,
+                boxName: CacheConstants.contentBoxName,
+              );
+              
+              if (!cached.hasData) {
+                // Only fetch if not already cached
+                final headingContent = await fetchHeadingContent(headingId);
+                if (headingContent.isNotEmpty) {
+                  await cacheData(
+                    key: cacheKey,
+                    data: headingContent,
+                    boxName: CacheConstants.contentBoxName,
+                    ttl: CacheConstants.bookCacheTtl,
+                  );
+                  _log.finer('Cached content for heading $headingId during prefetch');
+                }
+              } else {
+                _log.finer('Heading $headingId is already cached');
+              }
+            } catch (e) {
+              _log.warning('Error prefetching content for heading $headingId: $e');
+              // Continue with other headings
+            }
+            completedHeadings++;
+            reportProgress(0.2 + 0.6 * (completedHeadings / totalHeadings));
+          }());
+        }
+        
+        // Wait for batch to complete before starting next batch
+        await Future.wait(futures);
+      }
+      
+      // Step 5: Prefetch images if any
+      if (imageUrls.isNotEmpty) {
+        _log.info('Prefetching ${imageUrls.length} images for book $bookId');
+        reportProgress(0.8);
+        
+        // Use ImageCacheManager for image prefetching
+        final batchSize = 3; // Limit parallel downloads
+        for (int i = 0; i < imageUrls.length; i += batchSize) {
+          final batch = imageUrls.skip(i).take(batchSize).toList();
+          final futures = <Future<void>>[];
+          
+          for (final url in batch) {
+            futures.add(_imageManager.preloadImage(url));
+          }
+          
+          await Future.wait(futures);
+          reportProgress(0.8 + 0.2 * (i + batch.length) / imageUrls.length);
+        }
+      }
+      
+      // Mark book as high priority for retention
+      await updateBookPriority(bookId, CachePriorityLevel.high);
+      
+      _log.info('Successfully prefetched all content for book $bookId');
+      reportProgress(1.0);
+    } catch (e) {
+      _log.severe('Error prefetching book content: $e');
+      // Ensure final progress callback even on error
+      if (overallProgress < 1.0) reportProgress(1.0);
+    }
   }
   
   /// Check if a book is fully downloaded and available offline
@@ -1203,6 +1448,7 @@ class CacheService {
       final result = await fetch();
       await cacheData(key: key, data: result, boxName: boxName, ttl: ttl);
       _log.fine('Background refresh completed for key: $key');
+      _metricsService?.recordWrite(key); // ADDED: Record write
     } catch (e) {
       _log.warning('Background refresh failed for key $key: $e');
     }
@@ -1211,10 +1457,12 @@ class CacheService {
   /// Get cache metadata for a specific key
   Future<CacheMetadata?> _getCacheMetadata(String key) async {
     try {
-      final box = Hive.box<CacheMetadata>(CacheConstants.metadataBoxName);
-      final metadata = box.get('metadata:$key');
+      final box = Hive.box<String>(CacheConstants.metadataBoxName);
+      final String? metadataJson = box.get('metadata:$key');
       
-      return metadata;
+      if (metadataJson == null) return null;
+      
+      return CacheMetadata.fromMap(jsonDecode(metadataJson));
     } catch (e) {
       _log.warning('Error getting metadata for key $key: $e');
       return null;
@@ -1224,8 +1472,8 @@ class CacheService {
   /// Save metadata for a cached item
   Future<void> _saveCacheMetadata(String key, CacheMetadata metadata) async {
     try {
-      final box = Hive.box<CacheMetadata>(CacheConstants.metadataBoxName);
-      await box.put('metadata:$key', metadata);
+      final box = Hive.box<String>(CacheConstants.metadataBoxName);
+      await box.put('metadata:$key', jsonEncode(metadata.toMap()));
     } catch (e) {
       _log.warning('Error saving metadata for key $key: $e');
     }
@@ -1250,11 +1498,10 @@ class CacheService {
       // Remove associated metadata from CacheService's metadata tracking
       _memoryCacheMetadata.remove(key);
       // Also attempt to remove from Hive-based metadata store, if it was persisted by _saveCacheMetadata
-      // This assumes _saveCacheMetadata (and by extension _getCacheMetadata) uses a specific box for metadata
-      // which is CacheConstants.metadataBoxName
       await _hiveManager.delete(key, CacheConstants.metadataBoxName); 
 
       _log.info('Successfully removed item and its metadata for key: $key from box: $boxName');
+      _metricsService?.recordEviction(key, reason: 'manual_remove'); // ADDED: Record eviction
     } catch (e, stackTrace) {
       _log.severe('Error removing item for key: $key from box: $boxName', e, stackTrace);
       rethrow; // Or handle more gracefully depending on desired error propagation
@@ -1269,9 +1516,104 @@ class CacheService {
       // Also clear any memory cache entries that might be related, though typically box clearing is for persistent only.
       // For simplicity, we are not clearing specific memory cache items here, as they are managed by TTL / screen.
       _log.info('Cleared all entries from Hive box: $boxName');
+      _metricsService?.recordBoxPurge(boxName); // CORRECTED: Use recordBoxPurge
     } catch (e, stackTrace) {
       _log.severe('Error clearing Hive box: $boxName', e, stackTrace);
       rethrow;
     }
+  }
+  
+  /// Get all keys from a specific Hive box.
+  /// Useful for browsing all cached items or scanning for specific patterns
+  Future<List<String>> getCachedKeys(String boxName) async {
+    if (!_initialized) await initialize();
+    try {
+      final List<String> keysInBox = await _hiveManager.getAllKeys(boxName); // NEW - Corrected
+      return keysInBox;
+    } catch (e, stackTrace) {
+      _log.severe('Error getting keys from box: $boxName', e, stackTrace);
+      return [];
+    }
+  }
+
+  /// Pins an item in the cache, preventing it from being automatically evicted.
+  /// The item must already exist in the persistent cache.
+  Future<void> pinItem(String key, String boxName) async {
+    if (!_initialized) await initialize();
+    _log.info('Attempting to pin item: $key in box: $boxName');
+
+    final CacheMetadata? existingMetadata = await _getCacheMetadata(key);
+    if (existingMetadata == null) {
+      _log.warning('Cannot pin item $key: Metadata not found. Item might not be cached or metadata is missing.');
+      return;
+    }
+
+    if (existingMetadata.isPinned) {
+      _log.info('Item $key in $boxName is already pinned.');
+      return;
+    }
+
+    // Verify the data exists in the specified persistent cache box
+    final bool itemExists = await _hiveManager.exists(key: key, boxName: boxName); // NEW - Corrected
+    if (!itemExists) {
+      _log.warning('Cannot pin item $key in $boxName: Data not found in persistent cache box. Please ensure item is cached first.');
+      return;
+    }
+
+    final updatedMetadata = existingMetadata.copyWith(isPinned: true);
+
+    // Update in memory metadata store if present
+    if (_memoryCacheMetadata.containsKey(key)) {
+      _memoryCacheMetadata[key] = updatedMetadata;
+       _log.finer('Updated in-memory metadata for pinned item $key.');
+    }
+    // Update in persistent metadata store
+    await _saveCacheMetadata(key, updatedMetadata);
+    _log.info('Item $key in box $boxName has been successfully pinned.');
+  }
+
+  /// Unpins an item in the cache, making it subject to normal eviction policies.
+  Future<void> unpinItem(String key, String boxName) async {
+    if (!_initialized) await initialize();
+    _log.info('Attempting to unpin item: $key in box: $boxName');
+
+    final CacheMetadata? existingMetadata = await _getCacheMetadata(key);
+    if (existingMetadata == null) {
+      _log.warning('Cannot unpin item $key: Metadata not found.');
+      return;
+    }
+
+    if (!existingMetadata.isPinned) {
+      _log.info('Item $key in $boxName is not currently pinned.');
+      return;
+    }
+
+    final updatedMetadata = existingMetadata.copyWith(isPinned: false);
+    
+    // Update in memory metadata store if present
+    if (_memoryCacheMetadata.containsKey(key)) {
+      _memoryCacheMetadata[key] = updatedMetadata;
+      _log.finer('Updated in-memory metadata for unpinned item $key.');
+    }
+    // Update in persistent metadata store
+    await _saveCacheMetadata(key, updatedMetadata);
+    _log.info('Item $key in box $boxName has been unpinned.');
+  }
+
+  /// Removes an item that was potentially saved for offline use. 
+  /// This is effectively the same as the general remove method.
+  Future<void> removeOfflineItem(String key, String boxName, {String? screenId}) async {
+    _log.info('Removing offline (potentially pinned) item: $key from box: $boxName.');
+    // The standard remove method will delete the item regardless of its pinned status
+    // and also handle metadata cleanup and metric recording.
+    await remove(key, boxName, screenId: screenId);
+    _log.info('Offline item $key from $boxName removed.');
+  }
+
+  /// Checks if a cached item is currently pinned.
+  Future<bool> isItemPinned(String key) async {
+    if (!_initialized) await initialize();
+    final CacheMetadata? metadata = await _getCacheMetadata(key);
+    return metadata?.isPinned ?? false;
   }
 }

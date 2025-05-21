@@ -55,6 +55,8 @@ dependencies:
   marquee: ^2.3.0
   flutter_hooks: ^0.21.2
   connectivity_plus: ^6.1.4
+  crypto: ^3.0.6
+  collection: ^1.19.1
 
 dev_dependencies:
   flutter_test:

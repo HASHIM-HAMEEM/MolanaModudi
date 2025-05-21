@@ -11,6 +11,15 @@ enum CacheResultSource {
   /// Data was retrieved from cache but is currently being refreshed
   cacheRefreshing,
   
+  /// Stale cache data was returned due to a network fetch failure
+  cacheStaleNetworkError, 
+  
+  /// A network fetch attempt failed and no cache was available or suitable
+  networkError,
+
+  /// Item not found in cache, and network fetch was not permitted or also failed
+  cacheMiss,
+  
   /// No data was available
   notFound,
   
@@ -100,10 +109,10 @@ class CacheResult<T> {
     (source == CacheResultSource.cache && metadata?.isExpired == false);
   
   /// Whether the result represents an error
-  bool get hasError => source == CacheResultSource.error && error != null;
+  bool get hasError => (source == CacheResultSource.error || source == CacheResultSource.networkError) && error != null;
   
   /// Whether data was not found
-  bool get isNotFound => source == CacheResultSource.notFound;
+  bool get isNotFound => source == CacheResultSource.notFound || source == CacheResultSource.cacheMiss;
   
   /// Convert the result to a different type using a conversion function
   CacheResult<R> mapData<R>(R Function(T) convert) {
@@ -127,8 +136,38 @@ class CacheResult<T> {
      );
    }
   
+  /// Creates a copy of this CacheResult but with the given fields replaced.
+  CacheResult<T> copyWith({
+    T? data,
+    CacheResultSource? source,
+    bool? isCacheHit,
+    Object? error,
+    CacheMetadata? metadata,
+  }) {
+    return CacheResult<T>(
+      data: data ?? this.data,
+      source: source ?? this.source,
+      isCacheHit: isCacheHit ?? this.isCacheHit,
+      error: error ?? this.error,
+      metadata: metadata ?? this.metadata,
+    );
+  }
+  
   @override
   String toString() {
     return 'CacheResult{source: $source, isCacheHit: $isCacheHit, hasData: $hasData, hasError: $hasError}';
+  }
+}
+
+/// Represents an error that occurred during a cache operation.
+class CacheError {
+  final String message;
+  final StackTrace? stackTrace;
+
+  CacheError(this.message, [this.stackTrace]);
+
+  @override
+  String toString() {
+    return 'CacheError: $message${stackTrace == null ? '' : "\n$stackTrace"}';
   }
 }
