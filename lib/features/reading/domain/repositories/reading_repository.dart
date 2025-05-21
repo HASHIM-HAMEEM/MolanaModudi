@@ -99,4 +99,16 @@ abstract class ReadingRepository {
   
   /// Get a stream of download progress events
   Stream<Map<String, dynamic>> getDownloadProgressStream();
-} 
+
+  // Methods from BooksRepository
+  Future<List<Book>> getBooks({String? category, int limit = 50, dynamic startAfter});
+  Future<List<Book>> searchBooks(String query);
+  Future<List<Book>> getFeaturedBooks({int limit = 10});
+  Future<Map<String, int>> getCategories();
+
+  // Method to get structured book content (volumes, chapters, headings)
+  Future<BookStructure> getBookStructure(String bookId);
+}
+// Ensure BookStructure is imported if defined in a separate file
+// For example, if it's in 'package:modudi/features/reading/domain/entities/book_structure.dart'
+import 'package:modudi/features/reading/domain/entities/book_structure.dart';

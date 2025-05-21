@@ -19,6 +19,7 @@ class CacheConstants {
   static const String bookmarksBoxName = 'bookmarks_box';
   static const String notesBoxName = 'notes_box';
   static const String userBoxName = 'user_box';
+  static const String cacheAnalyticsBoxName = 'cache_analytics_box';
 
   // Cache keys prefixes
   static const String bookKeyPrefix = 'book_';
@@ -37,7 +38,7 @@ class CacheConstants {
   static const String bookmarksKeyPrefix = 'bookmarks_';
   static const String readingProgressKeyPrefix = 'reading_progress_';
   static const String bookStructureKeyPrefix = 'structure_';
-  
+
   // Cache specific keys
   static const String featuredBooksKey = 'featured_books';
   static const String popularBooksKey = 'popular_books';
@@ -46,7 +47,7 @@ class CacheConstants {
   static const String videoLecturesKey = 'video_lectures';
 
   // Cache limits
-  static const int maxCacheSizeBytes = 200 * 1024 * 1024; // 200MB
+  static const int maxCacheSizeBytes = 500 * 1024 * 1024; // 500MB
   static const int maxImageCacheSizeBytes = 50 * 1024 * 1024; // 50MB
   static const int maxVideoCacheSizeBytes = 500 * 1024 * 1024; // 500MB
   

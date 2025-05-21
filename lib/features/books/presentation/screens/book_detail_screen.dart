@@ -19,7 +19,11 @@ import 'package:modudi/core/themes/font_utils.dart';
 // import 'package:modudi/core/constants/app_assets.dart'; // Removed unused import
 import 'package:modudi/core/utils/app_logger.dart';
 import 'package:modudi/core/providers/providers.dart'; // For cacheServiceProvider
-import 'package:modudi/core/cache/config/cache_constants.dart'; // Added import
+import 'package:modudi/core/cache/config/cache_constants.dart'; 
+// Ensure these are present, if not, the diff will add them.
+// If they were added by a previous attempt, this search block might need adjustment if it assumes they are not there.
+import 'package:modudi/core/providers/books_providers.dart'; 
+import 'package:modudi/features/reading/domain/entities/book_structure.dart'; 
 
 // import 'package:modudi/features/reading/domain/entities/models.dart'; // Commented out missing file
 // import 'package:modudi/features/books/presentation/widgets/book_card.dart'; // Commented out missing file
@@ -64,33 +68,28 @@ class _BookDetailScreenState extends ConsumerState<BookDetailScreen> with Ticker
   late TabController _tabController;
   final _log = Logger('BookDetailScreen');
   
-  // Static book cache to prevent reloading across screen rebuilds/navigation
-  static final Map<String, Book> _bookCache = {};
-  
   // Helper method to scale font sizes based on settings
   double _scaleFontSize(double baseSize) {
     return FontUtils.getScaledFontSize(baseSize, ref);
   }
 
-  // Local state variables
-  Book? _book;
-  bool _isLoading = true;
-  String? _errorMessage;
-  bool _isBookPinned = false; // Added state for pinned status
-
-  // Cache for structure future to prevent re-fetching on rebuilds
-  late Future<List<dynamic>> _structureFuture;
+  // Local state variables for UI that isn't directly tied to FutureProvider states
+  bool _isBookPinned = false; // State for pinned status, managed locally
   
   @override
   void initState() {
     super.initState();
     _tabController = TabController(length: 4, vsync: this);
-    _loadBookDetails(); // Fetch data on init
-    _structureFuture = _loadBookStructure(widget.bookId);
+    
     _checkBookPinnedStatus(); // Check pinned status on init
-  }
 
-  // Note: We're using the _bookCache static Map defined above for caching
+    // Trigger initial fetch for book details and structure by reading the providers.
+    ref.read(bookProvider(widget.bookId));
+    ref.read(bookStructureProvider(widget.bookId));
+
+    // _startBackgroundPrefetching will be called from the build method
+    // once bookProvider has data.
+  }
   
   // Status tracking for content prefetching
   bool _isPrefetchingContent = false;
@@ -120,7 +119,11 @@ class _BookDetailScreenState extends ConsumerState<BookDetailScreen> with Ticker
 
   // Method to toggle the pinned status of the book
   Future<void> _togglePinStatus() async {
-    if (_book == null) {
+    // Get the book data from the provider
+    final bookAsync = ref.read(bookProvider(widget.bookId));
+    final book = bookAsync.asData?.value;
+
+    if (book == null) {
       _log.warning('Cannot toggle pin status: Book details not loaded.');
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Book details not available. Please try again.')),
@@ -174,128 +177,62 @@ class _BookDetailScreenState extends ConsumerState<BookDetailScreen> with Ticker
     }
   }
 
-  // Fetch book details using the ReadingRepository with enhanced caching
-  Future<void> _loadBookDetails() async {
-    if (!mounted) return;
-    setState(() {
-      _isLoading = true;
-      _errorMessage = null;
-    });
-    
-    // Check if we already have this book in our memory cache
-    if (_bookCache.containsKey(widget.bookId)) {
-      _log.info('Using in-memory cached book for ID: ${widget.bookId}');
-      setState(() {
-        _book = _bookCache[widget.bookId];
-        _isLoading = false;
-      });
-      
-      // Even with cached book, start background prefetching of content
-      _startBackgroundPrefetching();
-      return;
-    }
-    
-    _log.info('Loading details for book ID: ${widget.bookId} using repository');
-
-    try {
-      final readingRepo = await ref.read(readingRepositoryProvider.future);
-      final book = await readingRepo.getBookData(widget.bookId);
-      
-      // Store in our memory cache for future accesses
-      _bookCache[widget.bookId] = book;
-      
-      _log.info('Loaded book: ${book.title} with ${book.volumes?.length ?? 0} volumes');
-
-      if (mounted) {
-        setState(() {
-          _book = book;
-          _isLoading = false;
-        });
-        
-        // Start prefetching all content for smoother reading experience
-        _startBackgroundPrefetching();
-      }
-    
-    } catch (e, stackTrace) {
-      _log.severe('Error loading book details: $e', e, stackTrace);
-      if (mounted) {
-        setState(() {
-          _errorMessage = e.toString();
-          _isLoading = false;
-        });
-      }
-    }
-  }
+  // _loadBookDetails method is removed.
 
   // AI Insights functionality will be implemented in future updates
 
   // Improved prefetching method that works with optimized caching
-  Future<void> _startBackgroundPrefetching() async {
-    if (_isPrefetchingContent || _book == null) return;
+  Future<void> _startBackgroundPrefetching(Book book) async { // Accepts Book object
+    if (_isPrefetchingContent) return;
     
+    if (!mounted) return; // Ensure widget is still in tree
     setState(() {
       _isPrefetchingContent = true;
       _prefetchProgress = 0.0;
     });
     
     try {
-      // Get cache service
+      // Get cache service and repository
       final cacheService = await ref.read(cacheServiceProvider.future);
+      final readingRepo = await ref.read(consolidatedBookRepoProvider.future);
       
-      // Use a simple try/catch to get book data and headings
-      final bookId = _book!.firestoreDocId;
+      final bookId = book.firestoreDocId;
       final imageUrls = <String>[];
       
-      // Add thumbnail URL if available 
-      if (_book!.thumbnailUrl != null && _book!.thumbnailUrl!.isNotEmpty) {
-        imageUrls.add(_book!.thumbnailUrl!);
+      if (book.thumbnailUrl != null && book.thumbnailUrl!.isNotEmpty) {
+        imageUrls.add(book.thumbnailUrl!);
+      }
+      if (book.audioUrl != null && book.audioUrl!.isNotEmpty) {
+        imageUrls.add(book.audioUrl!);
       }
       
-      // Add audio URL if available
-      if (_book!.audioUrl != null && _book!.audioUrl!.isNotEmpty) {
-        imageUrls.add(_book!.audioUrl!);
-      }
-      
-      // Use the cache service directly for prefetching
       await cacheService.prefetchBookContent(
         bookId: bookId,
-        // Use anonymous functions that invoke the Firebase services directly
         fetchBookData: () async {
-          try {
-            final bookDoc = await FirebaseFirestore.instance.collection('books').doc(bookId).get();
-            if (!bookDoc.exists) return {};
-            return bookDoc.data() as Map<String, dynamic>;
-          } catch (e) {
-            _log.warning('Error fetching book data: $e');
-            return {};
-          }
+          // Per instructions, direct Firestore call for book data is reluctantly kept for now.
+          // This is a known point for future refactoring to use a repository raw data method.
+          _log.warning("Prefetch fetchBookData: Using direct Firestore call. This should be refactored.");
+          final bookDoc = await FirebaseFirestore.instance.collection('books').doc(bookId).get();
+          return bookDoc.data() ?? {};
         },
         fetchHeadings: () async {
-          try {
-            final snapshot = await FirebaseFirestore.instance
-                .collection('books')
-                .doc(bookId)
-                .collection('headings')
-                .orderBy('sequence')
-                .get();
-            return snapshot.docs.map((doc) => doc.data()).toList();
-          } catch (e) {
-            _log.warning('Error fetching headings: $e');
-            return [];
+          _log.info("Prefetch fetchHeadings: Using readingRepo.getBookStructure and extracting headings.");
+          final structure = await readingRepo.getBookStructure(bookId);
+          List<Map<String, dynamic>> allRawHeadings = [];
+          for (var vol in structure.volumes) {
+            for (var chap in vol.chapters ?? []) {
+              // Assuming Heading model has a toMap() method
+              allRawHeadings.addAll(chap.headings?.map((h) => h.toMap()).toList() ?? []);
+            }
           }
+          for (var chap in structure.standaloneChapters) {
+             allRawHeadings.addAll(chap.headings?.map((h) => h.toMap()).toList() ?? []);
+          }
+          return allRawHeadings;
         },
-        fetchHeadingContent: (headingId) async {
-          try {
-            final contentDoc = await FirebaseFirestore.instance
-                .collection('headings')
-                .doc(headingId)
-                .get();
-            if (!contentDoc.exists) return {};
-            return contentDoc.data() as Map<String, dynamic>;
-          } catch (e) {
-            _log.warning('Error fetching heading content: $e');
-            return {};
-          }
+        fetchHeadingContent: (String headingId) async {
+          _log.info("Prefetch fetchHeadingContent: Using readingRepo.getHeadingFullContent for $headingId");
+          return await readingRepo.getHeadingFullContent(headingId);
         },
         imageUrls: imageUrls,
         onProgress: (progress) {
@@ -307,9 +244,9 @@ class _BookDetailScreenState extends ConsumerState<BookDetailScreen> with Ticker
         },
       );
       
-      _log.info('Successfully prefetched all content for book ${_book!.title}');
-    } catch (e) {
-      _log.warning('Error prefetching book content: $e');
+      _log.info('Successfully prefetched all content for book ${book.title}');
+    } catch (e, stackTrace) {
+      _log.severe('Error prefetching book content for ${book.firestoreDocId}: $e', stackTrace);
     } finally {
       if (mounted) {
         setState(() {
@@ -328,88 +265,25 @@ class _BookDetailScreenState extends ConsumerState<BookDetailScreen> with Ticker
 
   @override
   Widget build(BuildContext context) {
-    // Get theme colors for UI elements
+    final bookAsyncValue = ref.watch(bookProvider(widget.bookId));
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
     final primaryColor = theme.colorScheme.primary;
     final backgroundColor = theme.scaffoldBackgroundColor;
-    
-    // Handle loading state
-    if (_isLoading) {
-      return Scaffold(
-        backgroundColor: backgroundColor,
-        appBar: AppBar(
-          backgroundColor: primaryColor,
-          elevation: 0,
-          leading: BackButton(color: isDark ? Colors.white : Colors.black54),
-          title: Text('Loading...', style: TextStyle(color: isDark ? Colors.white : Colors.black87)),
-        ),
-        body: const Center(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              CircularProgressIndicator(),
-              SizedBox(height: 24),
-              Text('Loading book details...'),
-            ],
-          ),
-        ),
-      );
-    } 
-    // Handle error state
-    else if (_errorMessage != null || _book == null) {
-      return Scaffold(
-        backgroundColor: backgroundColor,
-        appBar: AppBar(
-          backgroundColor: primaryColor,
-          elevation: 0,
-          leading: BackButton(color: isDark ? Colors.white : Colors.black54),
-          title: Text('Error', style: TextStyle(color: isDark ? Colors.white : Colors.black87)),
-        ),
-        body: Center(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              const Icon(Icons.error_outline, size: 64, color: Colors.red),
-              const SizedBox(height: 24),
-              Text(
-                'Failed to load book details',
-                style: theme.textTheme.titleLarge,
-                textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: 16),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 32),
-                child: Text(
-                  _errorMessage ?? 'Unknown error occurred',
-                  style: theme.textTheme.bodyMedium,
-                  textAlign: TextAlign.center,
-                ),
-              ),
-              const SizedBox(height: 32),
-              ElevatedButton(
-                onPressed: _loadBookDetails,
-                child: const Text('Try Again'),
-              ),
-              ElevatedButton(
-                onPressed: () {
-                  final textToShare = 'Check out "${_book!.title}" on Modudi';
-                  Share.share(textToShare, subject: 'Book recommendation from Modudi');
-                },
-                child: const Text('Share Book'),
-              ),
-            ],
-          ),
-        ),
-      );
-    } 
-    // Success state - build the UI with real data
-    else {
-      final book = _book!;
 
-      return Scaffold(
-        backgroundColor: backgroundColor,
-        appBar: AppBar(
+    return bookAsyncValue.when(
+      data: (book) {
+        // Book data is available
+        // Trigger prefetching if conditions are met
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted && !_isPrefetchingContent) {
+            _startBackgroundPrefetching(book);
+          }
+        });
+        
+        return Scaffold(
+          backgroundColor: backgroundColor,
+          appBar: AppBar(
           backgroundColor: primaryColor,
           elevation: 0,
           systemOverlayStyle: isDark 
@@ -690,7 +564,7 @@ Download the app to read more.''';
             ),
             // Favorite button
             Consumer(builder: (context, ref, child) {
-              return _buildFavoriteButton();
+              return _buildFavoriteButton(book); // Pass book
             }),
             // Pin button
             IconButton(
@@ -698,7 +572,7 @@ Download the app to read more.''';
                 _isBookPinned ? Icons.push_pin : Icons.push_pin_outlined,
                 color: _isBookPinned ? AppColor.accent : (Theme.of(context).brightness == Brightness.dark ? Colors.white70 : Colors.black54),
               ),
-              onPressed: _isLoading ? null : _togglePinStatus, // Disable if loading
+              onPressed: _togglePinStatus, // No longer rely on _isLoading
               tooltip: _isBookPinned ? 'Remove from Offline Saved Items' : 'Save for Offline Access',
             ),
           ],
@@ -790,7 +664,7 @@ Download the app to read more.''';
             children: [
               // Heart/Favorite button - MORE COMPACT
               Consumer(builder: (context, ref, child) {
-                return _buildFavoriteButton();
+                return _buildFavoriteButton(book); // Pass book
               }),
               
               SizedBox(width: MediaQuery.of(context).size.width * 0.03), // Reduced spacing
@@ -1241,45 +1115,19 @@ Download the app to read more.''';
     );
   }
 
-  // Update Chapters Tab to use List<HeadingModel>
+  // Update Chapters Tab to use bookStructureProvider
   Widget _buildChaptersTab() {
-    return FutureBuilder<List<dynamic>>(
-      future: _structureFuture, // Use cached future
-      builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting) {
-          return const Center(child: CircularProgressIndicator());
-        }
-        
-        if (snapshot.hasError) {
-          AppLogger.getLogger('BookDetail').severe('Failed to load chapters', snapshot.error);
+    final structureAsyncValue = ref.watch(bookStructureProvider(widget.bookId));
+    
+    return structureAsyncValue.when(
+      data: (structure) {
+        final List<Volume> volumes = structure.volumes;
+        final List<Chapter> standaloneChapters = structure.standaloneChapters;
+
+        if (volumes.isEmpty && standaloneChapters.isEmpty) {
           return Center(
             child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Icon(Icons.error_outline, size: 48, color: Colors.red),
-                const SizedBox(height: 16),
-                Text(
-                  'Could not load chapters',
-                  style: Theme.of(context).textTheme.titleMedium,
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  'Please try again later',
-                  style: Theme.of(context).textTheme.bodyMedium,
-                ),
-              ],
-            ),
-          );
-        }
-        
-        if (snapshot.hasData) {
-          final List<Volume> volumes = snapshot.data![0];
-          final List<Chapter> standaloneChapters = snapshot.data![1];
-          
-          if (volumes.isEmpty && standaloneChapters.isEmpty) {
-            return Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
+              mainAxisAlignment: MainAxisAlignment.center,
                 children: [
                   Icon(Icons.menu_book, size: 48, color: Colors.grey[400]),
                   const SizedBox(height: 16),
@@ -1388,7 +1236,34 @@ Download the app to read more.''';
           );
         }
         
-        return const Center(child: Text('No data available'));
+        return const Center(child: Text('No data available.')); // More informative
+      },
+      loading: () => const Center(child: CircularProgressIndicator()),
+      error: (err, stack) {
+        AppLogger.getLogger('BookDetailScreen').severe('Failed to load chapters structure', err, stack);
+        return Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(Icons.error_outline, size: 48, color: Colors.red),
+              const SizedBox(height: 16),
+              Text(
+                'Could not load chapters',
+                style: Theme.of(context).textTheme.titleMedium,
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 8),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16.0),
+                child: Text(
+                  'Error: ${err.toString()}', // Display error message
+                  style: Theme.of(context).textTheme.bodyMedium,
+                  textAlign: TextAlign.center,
+                ),
+              ),
+            ],
+          ),
+        );
       },
     );
   }
@@ -1545,128 +1420,7 @@ Download the app to read more.''';
     );
   }
   
-  // Helper to fetch book structure (volumes and chapters)
-  Future<List<dynamic>> _loadBookStructure(String bookId) async {
-    final log = AppLogger.getLogger('BookDetailScreen');
-    log.info('Loading book structure for ID: $bookId');
-    
-    try {
-      final firestore = FirebaseFirestore.instance;
-      final bookDocRef = firestore.collection('books').doc(bookId);
-      
-      // Debug the structure
-      await bookDocRef.get().then((doc) {
-        if (doc.exists) {
-          log.info('Book document exists: ${doc.data()?.keys.toString()}');
-        } else {
-          log.info('Book document does not exist');
-        }
-      });
-      
-      // 1. First fetch volumes for this book
-      log.info('Fetching volumes for book: $bookId');
-      final volumesQuery = await firestore.collection('volumes')
-          .where('book_id', isEqualTo: int.tryParse(bookId))
-          .orderBy('sequence')
-          .get();
-          
-      log.info('Found ${volumesQuery.docs.length} volumes for book $bookId');
-      
-      // Map volumes to our model
-      final volumes = volumesQuery.docs.map((doc) {
-        final data = doc.data();
-        log.info('Volume data: ${doc.id}, title: ${data['title'] ?? 'unknown'}');
-        return Volume.fromMap(doc.id, data);
-      }).toList();
-      
-      // 2. If no volumes found, check if there are standalone chapters
-      final List<Chapter> standaloneChapters = [];
-      if (volumes.isEmpty) {
-        log.info('No volumes found, checking for standalone chapters');
-        final chaptersQuery = await firestore.collection('chapters')
-            .where('book_id', isEqualTo: int.tryParse(bookId))
-            .orderBy('sequence')
-            .get();
-        
-        standaloneChapters.addAll(chaptersQuery.docs.map((doc) {
-          final data = doc.data();
-          log.info('Standalone chapter: ${doc.id}, title: ${data['title'] ?? 'unknown'}');
-          return Chapter.fromMap(doc.id, data);
-        }));
-        
-        log.info('Found ${standaloneChapters.length} standalone chapters');
-      }
-      
-      // 3. For each volume, fetch its chapters
-      await Future.wait(volumes.map((volume) async {
-        try {
-          // First try regular path - chapters directly under volumes
-          final volumeChapters = await firestore.collection('chapters')
-              .where('volume_id', isEqualTo: volume.id)
-              .orderBy('sequence')
-              .get();
-          
-          // Map chapters to our model
-          volume.chapters = volumeChapters.docs.map((doc) {
-            final data = doc.data();
-            log.info('Chapter in volume ${volume.title}: ${doc.id}, title: ${data['title'] ?? 'unknown'}');
-            return Chapter.fromMap(doc.id, data);
-          }).toList();
-          
-          log.info('Found ${volume.chapters?.length ?? 0} chapters for volume ${volume.title}');
-          
-          // 4. For each chapter in this volume, fetch headings (where the actual content lives)
-          if (volume.chapters != null) {
-            await Future.wait(volume.chapters!.map((chapter) async {
-              try {
-                final headingsQuery = await firestore.collection('headings')
-                    .where('chapter_id', isEqualTo: chapter.id)
-                    .orderBy('sequence')
-                    .get();
-                    
-                chapter.headings = headingsQuery.docs.map((doc) {
-                  final data = doc.data();
-                  return Heading.fromMap(doc.id, data);
-                }).toList();
-                
-                log.info('Found ${chapter.headings?.length ?? 0} headings for chapter ${chapter.title}');
-              } catch (e) {
-                log.warning('Error fetching headings for chapter ${chapter.id}: $e');
-              }
-            }));
-          }
-        } catch (e) {
-          log.warning('Error fetching chapters for volume ${volume.id}: $e');
-        }
-      }));
-      
-      // 5. For standalone chapters, fetch their headings too
-      if (standaloneChapters.isNotEmpty) {
-        await Future.wait(standaloneChapters.map((chapter) async {
-          try {
-            final headingsQuery = await firestore.collection('headings')
-                .where('chapter_id', isEqualTo: chapter.id)
-                .orderBy('sequence')
-                .get();
-                
-            chapter.headings = headingsQuery.docs.map((doc) {
-              final data = doc.data();
-              return Heading.fromMap(doc.id, data);
-            }).toList();
-            
-            log.info('Found ${chapter.headings?.length ?? 0} headings for standalone chapter ${chapter.title}');
-          } catch (e) {
-            log.warning('Error fetching headings for standalone chapter ${chapter.id}: $e');
-          }
-        }));
-      }
-      
-      return [volumes, standaloneChapters];
-    } catch (e, stackTrace) {
-      log.severe('Error loading book structure', e, stackTrace);
-      rethrow;
-    }
-  }
+  // _loadBookStructure method is now removed.
   
   // Update Bookmarks Tab to use AsyncValue pattern
   Widget _buildBookmarksTab() {
