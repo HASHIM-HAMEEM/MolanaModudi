@@ -188,8 +188,8 @@ class Heading {
 }
 
 class Book {
-  final String firestoreDocId; 
-  final int? id; 
+  final String firestoreDocId; // Document ID of this book in Firestore
+  final int? id; // Original numeric ID from JSON
   final bool? unicode;
   final String? title;
   final String? author;
@@ -217,7 +217,7 @@ class Book {
 
   List<Heading>? headings; 
   List<Volume>? volumes; // Added field
-  bool isFromCache; // Track if the book is loaded from cache
+  bool isFromCache = false; // Added to track cache source
 
   Book({
     required this.firestoreDocId,
@@ -247,7 +247,6 @@ class Book {
     this.type, // Added type
     this.headings,
     this.volumes, // Added to constructor
-    this.isFromCache = false, // Default to false
   }) : additionalFields = additionalFields ?? {};
 
   factory Book.fromMap(String docId, Map<String, dynamic> map) {
@@ -293,7 +292,6 @@ class Book {
       type: map['type'] as String?, // Added type
       headings: null, 
       volumes: null, // volumes initialized to null
-      isFromCache: false, // Default to false
     );
   }
 
@@ -325,7 +323,6 @@ class Book {
       // Properly include headings and volumes for complete caching
       'headings': headings?.map((h) => h.toMap()).toList(),
       'volumes': volumes?.map((v) => v.toMap()).toList(),
-      'is_from_cache': isFromCache, // Save cache status too
     };
     
     // Add any additional fields
@@ -378,7 +375,6 @@ class Book {
     String? type, // Added type
     List<Heading>? headings,
     List<Volume>? volumes,
-    bool? isFromCache, // Added to copyWith
   }) {
     return Book(
       firestoreDocId: firestoreDocId ?? this.firestoreDocId,
@@ -408,7 +404,6 @@ class Book {
       type: type ?? this.type, // Added type
       headings: headings ?? this.headings,
       volumes: volumes ?? this.volumes,
-      isFromCache: isFromCache ?? this.isFromCache, // Added to copyWith
     );
   }
 
@@ -659,6 +654,23 @@ class Chapter {
       content: map['content'] != null ? List<String>.from(map['content']) : null,
       headings: null, // Will be populated separately
     );
+  }
+
+  Map<String, dynamic> toMap() {
+    return {
+      'id': id,
+      'firestoreDocId': firestoreDocId,
+      'title': title,
+      'description': description,
+      'sequence': sequence,
+      'volume_id': volumeId,
+      'book_id': bookId,
+      'status': status,
+      'created_at': createdAt,
+      'updated_at': updatedAt,
+      'content': content,
+      'headings': headings?.map((h) => h.toMap()).toList(), // Assuming Heading has toMap
+    }..removeWhere((key, value) => value == null);
   }
 
   @override

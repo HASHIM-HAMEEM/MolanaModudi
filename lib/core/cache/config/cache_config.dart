@@ -41,6 +41,12 @@ class CacheConfig {
   /// Whether to enable cache analytics
   final bool enableAnalytics;
   
+  /// Whether to track detailed cache metrics like hit/miss rates
+  final bool trackCacheMetrics;
+  
+  /// Whether to report cache analytics to a monitoring service
+  final bool reportCacheAnalytics;
+  
   /// Whether to preload common assets
   final bool enablePreloading;
   
@@ -49,6 +55,9 @@ class CacheConfig {
   
   /// Whether to cache content for offline use
   final bool enableOfflineMode;
+  
+  /// Duration between cache analytics reports
+  final Duration analyticsReportInterval;
 
   /// Creates a new CacheConfig instance
   const CacheConfig({
@@ -59,9 +68,12 @@ class CacheConfig {
     this.autoClearStaleOnStart = true,
     this.enableBackgroundSync = true,
     this.enableAnalytics = false,
+    this.trackCacheMetrics = false,
+    this.reportCacheAnalytics = false,
     this.enablePreloading = true,
     this.enableCompression = true,
     this.enableOfflineMode = true,
+    this.analyticsReportInterval = const Duration(hours: 24),
   });
   
   /// Default configuration

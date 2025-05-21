@@ -2,6 +2,7 @@ import 'dart:io';
 import 'dart:async';
 import 'package:flutter_cache_manager/flutter_cache_manager.dart' hide CacheManager;
 import 'package:logging/logging.dart';
+import 'package:path_provider/path_provider.dart' as path_provider;
 
 import '../cache_service.dart';
 import '../config/cache_constants.dart';
@@ -137,15 +138,128 @@ class ImageCacheManager {
     }
   }
 
-  /// Preload an image into both disk and memory cache
-  Future<bool> preloadImage(String url, {Duration? ttl}) async {
+  /// Preload an image into both disk and memory cache with retry mechanism
+  Future<bool> preloadImage(String url, {Duration? ttl, int maxRetries = 2}) async {
     if (!_initialized) await initialize();
     
+    int retryCount = 0;
+    bool success = false;
+    
+    while (retryCount <= maxRetries && !success) {
+      try {
+        final file = await downloadAndCacheImage(url, ttl: ttl);
+        success = file != null;
+        if (success) {
+          app_logger.CacheLogger.info('Successfully preloaded image after ${retryCount > 0 ? "$retryCount retries" : "first attempt"}: $url');
+          return true;
+        } else {
+          retryCount++;
+          if (retryCount <= maxRetries) {
+            app_logger.CacheLogger.warning('Image preload attempt $retryCount/$maxRetries failed for $url, retrying...');
+            await Future.delayed(Duration(milliseconds: 500 * retryCount)); // Exponential backoff
+          }
+        }
+      } catch (e) {
+        _log.warning('Error preloading image: $url (attempt ${retryCount + 1}/$maxRetries)', e);
+        retryCount++;
+        if (retryCount <= maxRetries) {
+          await Future.delayed(Duration(milliseconds: 500 * retryCount)); // Exponential backoff
+        }
+      }
+    }
+    
+    if (!success) {
+      _log.warning('Failed to preload image after $maxRetries retries: $url');
+    }
+    return success;
+  }
+  
+  /// Preload multiple images in parallel with progress tracking
+  Future<Map<String, bool>> batchPreloadImages(List<String> urls, {Duration? ttl, int maxConcurrent = 3}) async {
+    if (!_initialized) await initialize();
+    if (urls.isEmpty) return {};
+    
+    final Map<String, bool> results = {};
+    int completed = 0;
+    final totalImages = urls.length;
+    
     try {
-      final file = await downloadAndCacheImage(url, ttl: ttl);
-      return file != null;
+      _log.info('Starting batch preload of ${urls.length} images');
+      
+      // Process images in batches to limit concurrent operations
+      for (int i = 0; i < urls.length; i += maxConcurrent) {
+        final batch = urls.skip(i).take(maxConcurrent).toList();
+        final futures = <Future<void>>[];
+        
+        for (final url in batch) {
+          futures.add((() async {
+            results[url] = await preloadImage(url, ttl: ttl);
+            completed++;
+            // Update progress
+            final progress = completed / totalImages;
+            _preloadProgressController.add(progress);
+            app_logger.CacheLogger.info('Image preload progress: ${(progress * 100).toStringAsFixed(0)}% ($completed/$totalImages)');
+          })());
+        }
+        
+        // Wait for batch to complete before starting next batch
+        await Future.wait(futures);
+      }
+      
+      _log.info('Completed batch preload: ${results.values.where((v) => v).length}/${urls.length} images successfully cached');
+      _preloadProgressController.add(1.0); // Mark as complete
+      
+      return results;
     } catch (e) {
-      _log.warning('Error preloading image: $url', e);
+      _log.severe('Error in batch preload of images', e);
+      // Still return partial results
+      return results;
+    }
+  }
+  
+  /// Validate a cached image exists and is not corrupt
+  Future<bool> validateCachedImage(String url) async {
+    if (!_initialized) await initialize();
+    final String cacheKey = _generateCacheKey(url);
+    
+    try {
+      // Check metadata first
+      final cacheResult = await _cacheService.getCachedData<Map<String, dynamic>>(
+        key: cacheKey,
+        boxName: CacheConstants.imageMetadataBoxName,
+      );
+      
+      final Map<String, dynamic>? metadata = cacheResult?.data;
+      if (metadata != null && metadata['filePath'] != null) {
+        final filePath = metadata['filePath'] as String;
+        final file = File(filePath);
+        
+        if (await file.exists()) {
+          // Check if file is a valid image by checking file size
+          final fileSize = await file.length();
+          if (fileSize > 0) {
+            return true;
+          } else {
+            // Empty file, invalid
+            app_logger.CacheLogger.warning('Cached image is invalid (zero size): $url');
+            // Clean up invalid file
+            await file.delete();
+            await _cacheService.remove(cacheKey, CacheConstants.imageMetadataBoxName);
+            return false;
+          }
+        } else {
+          // File doesn't exist but metadata does - clean up metadata
+          app_logger.CacheLogger.warning('Cached image file not found but metadata exists: $url');
+          await _cacheService.remove(cacheKey, CacheConstants.imageMetadataBoxName);
+          return false;
+        }
+      }
+      
+      // Try using flutter_cache_manager's internal cache
+      final fileInfo = await _cacheManager.getFileFromCache(cacheKey);
+      return fileInfo != null && await fileInfo.file.exists() && await fileInfo.file.length() > 0;
+    } catch (e) {
+      _log.warning('Error validating cached image: $url', e);
       return false;
     }
   }
@@ -185,29 +299,56 @@ class ImageCacheManager {
         return null;
       }
 
-      // TODO: This section needs path_provider and proper directory setup if functionality is kept.
-      // For now, commenting out to resolve baseDir issues and remove path_provider dependency.
-      /*
-      final appDir = await getApplicationDocumentsDirectory();
-      final targetDir = Directory(path.join(appDir.path, directoryName));
+      // Get the app directory for storing images
+      final appDir = await path_provider.getApplicationDocumentsDirectory();
+      final targetDir = Directory('${appDir.path}/$directoryName');
       if (!await targetDir.exists()) {
         await targetDir.create(recursive: true);
       }
 
+      // Extract file extension from URL or use .jpg as default
       final extension = _getImageExtension(url);
       final filename = '$id$extension';
-      final filePath = path.join(targetDir.path, filename);
+      final filePath = '${targetDir.path}/$filename';
       
+      // Copy the cached file to the app directory
       final newFile = await cachedFile.copy(filePath);
+      
+      // Store metadata about the saved image
+      final metadata = {
+        'filePath': filePath,
+        'url': url,
+        'savedAt': DateTime.now().toIso8601String(),
+        'offline': true,
+      };
+      
+      await _cacheService.cacheData(
+        key: '${CacheConstants.imageKeyPrefix}${id}_offline',
+        data: metadata,
+        boxName: CacheConstants.imageMetadataBoxName,
+        ttl: const Duration(days: 365), // Long TTL for offline images
+      );
+      
       app_logger.CacheLogger.info('Image $url saved to app directory: $filePath');
       return newFile;
-      */
-      _log.info('saveImageToAppDirectory: Functionality to copy to app directory is currently disabled pending path_provider re-integration.');
-      return cachedFile; // Returning the cached file directly for now
     } catch (e, stackTrace) {
       _log.severe('Error saving image $url to app directory', e, stackTrace);
       return null;
     }
+  }
+  
+  /// Get file extension from URL
+  String _getImageExtension(String url) {
+    final uri = Uri.parse(url);
+    final path = uri.path;
+    final lastDotIndex = path.lastIndexOf('.');
+    
+    if (lastDotIndex != -1 && lastDotIndex < path.length - 1) {
+      return path.substring(lastDotIndex); // Includes the dot
+    }
+    
+    // Default extension if none found
+    return '.jpg';
   }
 
   /// Get an image file path by its ID, if previously saved by saveImageToAppDirectory

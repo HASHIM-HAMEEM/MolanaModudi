@@ -20,7 +20,6 @@ class BookGridItem extends StatefulWidget {
 }
 
 class _BookGridItemState extends State<BookGridItem> with SingleTickerProviderStateMixin {
-  bool _isHovering = false;
   late ScrollController _scrollController;
   Timer? _scrollTimer;
   bool _needsScroll = false;
@@ -75,12 +74,6 @@ class _BookGridItemState extends State<BookGridItem> with SingleTickerProviderSt
     _scrollTimer?.cancel();
     _scrollController.dispose();
     super.dispose();
-  }
-
-  void _onHover(bool isHovering) {
-    setState(() {
-      _isHovering = isHovering;
-    });
   }
 
   @override

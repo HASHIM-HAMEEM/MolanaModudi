@@ -16,6 +16,9 @@ class CacheConstants {
   static const String bookStructuresBoxName = 'book_structures_box';
   static const String thumbnailMetadataBoxName = 'thumbnail_metadata_box';
   static const String imageMetadataBoxName = 'image_metadata_box';
+  static const String bookmarksBoxName = 'bookmarks_box';
+  static const String notesBoxName = 'notes_box';
+  static const String userBoxName = 'user_box';
 
   // Cache keys prefixes
   static const String bookKeyPrefix = 'book_';
@@ -29,6 +32,8 @@ class CacheConstants {
   static const String imageKeyPrefix = 'image_';
   static const String thumbnailMetadataPrefix = 'thumbnailMeta_';
   static const String imageMetadataPrefix = 'image_meta_';
+  static const String bookmarkKeyPrefix = 'bookmark_';
+  static const String userStatsKeyPrefix = 'user_stats_';
   static const String bookmarksKeyPrefix = 'bookmarks_';
   static const String readingProgressKeyPrefix = 'reading_progress_';
   static const String bookStructureKeyPrefix = 'structure_';
@@ -45,12 +50,16 @@ class CacheConstants {
   static const int maxImageCacheSizeBytes = 50 * 1024 * 1024; // 50MB
   static const int maxVideoCacheSizeBytes = 500 * 1024 * 1024; // 500MB
   
-  // Default TTL values
+  // Default TTL values for different content types
   static const Duration defaultCacheTtl = Duration(days: 7);
-  static const Duration bookCacheTtl = Duration(days: 30);
+  static const Duration bookCacheTtl = Duration(days: 30); // Extended to 30 days for better offline access
+  static const Duration volumeCacheTtl = Duration(days: 30); // Volumes have same TTL as books
+  static const Duration chapterCacheTtl = Duration(days: 30); // Chapters have same TTL as books
   static const Duration videoCacheTtl = Duration(days: 14);
   static const Duration imageCacheTtl = Duration(days: 30);
+  static const Duration thumbnailCacheTtl = Duration(days: 14); // Thumbnails can expire sooner than full images
   static const Duration metadataCacheTtl = Duration(days: 1);
+  static const Duration homepageCacheTtl = Duration(days: 3); // Homepage data refreshes more often
 
   // Network timeouts
   static const Duration networkTimeoutDuration = Duration(seconds: 15);

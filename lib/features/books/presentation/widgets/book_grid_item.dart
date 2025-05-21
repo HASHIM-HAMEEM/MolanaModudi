@@ -28,10 +28,6 @@ class BookGridItem extends StatelessWidget {
     // Use defaultLanguage field directly
     final language = book.defaultLanguage ?? 'N/A'; // Changed from language to defaultLanguage
     
-    // Check if book has PDF format (assuming it's stored in format list)
-    // final hasPdf = book.format?.any((f) => f.toLowerCase() == 'pdf') ?? false; // Commented out as book.format doesn't exist
-    final hasPdf = false; // Placeholder, logic needs revisit
-
     return InkWell(
       onTap: onTap,
       borderRadius: BorderRadius.circular(8.0),
@@ -57,6 +53,7 @@ class BookGridItem extends StatelessWidget {
                     // Book cover image
                     CachedNetworkImage(
                       imageUrl: coverImageUrl,
+                      cacheKey: 'thumb_${book.firestoreDocId}',
                       fit: BoxFit.cover,
                       placeholder: (context, url) => Container(
                         color: isDark ? Colors.grey[800] : Colors.grey[300],
@@ -103,25 +100,6 @@ class BookGridItem extends StatelessWidget {
                         ),
                       ),
                     ),
-                    
-                    // PDF format indicator
-                    if (hasPdf)
-                      Positioned(
-                        top: 4, // Reduced from 8
-                        right: 4, // Reduced from 8
-                        child: Container(
-                          padding: const EdgeInsets.all(3.0), // Reduced from 4.0
-                          decoration: BoxDecoration(
-                            color: Colors.black.withOpacity(0.7),
-                            borderRadius: BorderRadius.circular(3.0), // Reduced from 4.0
-                          ),
-                          child: const Icon(
-                            Icons.picture_as_pdf,
-                            color: Colors.white,
-                            size: 12.0, // Reduced from 14.0
-                          ),
-                        ),
-                      ),
                   ],
                 ),
               ),

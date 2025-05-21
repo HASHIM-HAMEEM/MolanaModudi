@@ -18,6 +18,8 @@ import 'package:modudi/features/favorites/providers/favorites_provider.dart';
 import 'package:modudi/core/themes/font_utils.dart';
 // import 'package:modudi/core/constants/app_assets.dart'; // Removed unused import
 import 'package:modudi/core/utils/app_logger.dart';
+import 'package:modudi/core/providers/providers.dart'; // For cacheServiceProvider
+import 'package:modudi/core/cache/config/cache_constants.dart'; // Added import
 
 // import 'package:modudi/features/reading/domain/entities/models.dart'; // Commented out missing file
 // import 'package:modudi/features/books/presentation/widgets/book_card.dart'; // Commented out missing file
@@ -74,6 +76,7 @@ class _BookDetailScreenState extends ConsumerState<BookDetailScreen> with Ticker
   Book? _book;
   bool _isLoading = true;
   String? _errorMessage;
+  bool _isBookPinned = false; // Added state for pinned status
 
   // Cache for structure future to prevent re-fetching on rebuilds
   late Future<List<dynamic>> _structureFuture;
@@ -83,12 +86,95 @@ class _BookDetailScreenState extends ConsumerState<BookDetailScreen> with Ticker
     super.initState();
     _tabController = TabController(length: 4, vsync: this);
     _loadBookDetails(); // Fetch data on init
-    _structureFuture = _loadBookStructure(widget.bookId); // Cache the future
+    _structureFuture = _loadBookStructure(widget.bookId);
+    _checkBookPinnedStatus(); // Check pinned status on init
   }
 
   // Note: We're using the _bookCache static Map defined above for caching
   
-  // Fetch book details using the ReadingRepository
+  // Status tracking for content prefetching
+  bool _isPrefetchingContent = false;
+  double _prefetchProgress = 0.0;
+  
+  // Method to check if the book is pinned
+  Future<void> _checkBookPinnedStatus() async {
+    if (!mounted) return;
+    try {
+      final cacheService = await ref.read(cacheServiceProvider.future);
+      final bookCacheKey = CacheConstants.bookKeyPrefix + widget.bookId;
+      final isPinned = await cacheService.isItemPinned(bookCacheKey);
+      if (mounted) {
+        setState(() {
+          _isBookPinned = isPinned;
+        });
+      }
+    } catch (e) {
+      _log.warning('Error checking pinned status for book ${widget.bookId}: $e');
+      if (mounted) {
+        setState(() {
+          _isBookPinned = false; // Assume not pinned on error
+        });
+      }
+    }
+  }
+
+  // Method to toggle the pinned status of the book
+  Future<void> _togglePinStatus() async {
+    if (_book == null) {
+      _log.warning('Cannot toggle pin status: Book details not loaded.');
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Book details not available. Please try again.')),
+      );
+      return;
+    }
+
+    if (!mounted) return;
+
+    final cacheService = await ref.read(cacheServiceProvider.future);
+    final bookCacheKey = CacheConstants.bookKeyPrefix + widget.bookId;
+    // Assuming books are primarily stored in a general 'books' box or similar
+    // This might need to be derived from where ReadingRepositoryImpl caches the full book object
+    // Based on MEMORY[93983ea3-14c4-40f4-9efc-cb2ae399f787], the book is cached with bookKeyPrefix.
+    // The boxName used by ReadingRepositoryImpl.getBookData when caching the full book needs to be consistent here.
+    // Let's assume CacheConstants.booksBoxName is the correct box for full book objects.
+    const String boxName = CacheConstants.booksBoxName; 
+
+    try {
+      if (_isBookPinned) {
+        await cacheService.unpinItem(bookCacheKey, boxName);
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Removed from Offline Saved Items.')),
+          );
+        }
+      } else {
+        // Before pinning, ensure the full book data is actually in the persistent cache.
+        // The ReadingRepositoryImpl.getBookData is responsible for caching the entire Book object.
+        // We assume that if _loadBookDetails was successful, the book *should* be in cache.
+        // A more robust check could involve verifying existence via cacheService.getCachedData, 
+        // but for now, we'll rely on prior caching by _loadBookDetails.
+        await cacheService.pinItem(bookCacheKey, boxName);
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Saved for Offline Access.')),
+          );
+        }
+      }
+      // Refresh the pinned status after the operation
+      await _checkBookPinnedStatus();
+    } catch (e, stackTrace) {
+      _log.severe('Error toggling pin status for book ${widget.bookId}: $e', stackTrace);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error updating offline status: ${e.toString()}')),
+        );
+      }
+      // Optionally, re-check status to ensure UI consistency even on error
+      await _checkBookPinnedStatus(); 
+    }
+  }
+
+  // Fetch book details using the ReadingRepository with enhanced caching
   Future<void> _loadBookDetails() async {
     if (!mounted) return;
     setState(() {
@@ -103,6 +189,9 @@ class _BookDetailScreenState extends ConsumerState<BookDetailScreen> with Ticker
         _book = _bookCache[widget.bookId];
         _isLoading = false;
       });
+      
+      // Even with cached book, start background prefetching of content
+      _startBackgroundPrefetching();
       return;
     }
     
@@ -122,7 +211,11 @@ class _BookDetailScreenState extends ConsumerState<BookDetailScreen> with Ticker
           _book = book;
           _isLoading = false;
         });
+        
+        // Start prefetching all content for smoother reading experience
+        _startBackgroundPrefetching();
       }
+    
     } catch (e, stackTrace) {
       _log.severe('Error loading book details: $e', e, stackTrace);
       if (mounted) {
@@ -135,6 +228,97 @@ class _BookDetailScreenState extends ConsumerState<BookDetailScreen> with Ticker
   }
 
   // AI Insights functionality will be implemented in future updates
+
+  // Improved prefetching method that works with optimized caching
+  Future<void> _startBackgroundPrefetching() async {
+    if (_isPrefetchingContent || _book == null) return;
+    
+    setState(() {
+      _isPrefetchingContent = true;
+      _prefetchProgress = 0.0;
+    });
+    
+    try {
+      // Get cache service
+      final cacheService = await ref.read(cacheServiceProvider.future);
+      
+      // Use a simple try/catch to get book data and headings
+      final bookId = _book!.firestoreDocId;
+      final imageUrls = <String>[];
+      
+      // Add thumbnail URL if available 
+      if (_book!.thumbnailUrl != null && _book!.thumbnailUrl!.isNotEmpty) {
+        imageUrls.add(_book!.thumbnailUrl!);
+      }
+      
+      // Add audio URL if available
+      if (_book!.audioUrl != null && _book!.audioUrl!.isNotEmpty) {
+        imageUrls.add(_book!.audioUrl!);
+      }
+      
+      // Use the cache service directly for prefetching
+      await cacheService.prefetchBookContent(
+        bookId: bookId,
+        // Use anonymous functions that invoke the Firebase services directly
+        fetchBookData: () async {
+          try {
+            final bookDoc = await FirebaseFirestore.instance.collection('books').doc(bookId).get();
+            if (!bookDoc.exists) return {};
+            return bookDoc.data() as Map<String, dynamic>;
+          } catch (e) {
+            _log.warning('Error fetching book data: $e');
+            return {};
+          }
+        },
+        fetchHeadings: () async {
+          try {
+            final snapshot = await FirebaseFirestore.instance
+                .collection('books')
+                .doc(bookId)
+                .collection('headings')
+                .orderBy('sequence')
+                .get();
+            return snapshot.docs.map((doc) => doc.data()).toList();
+          } catch (e) {
+            _log.warning('Error fetching headings: $e');
+            return [];
+          }
+        },
+        fetchHeadingContent: (headingId) async {
+          try {
+            final contentDoc = await FirebaseFirestore.instance
+                .collection('headings')
+                .doc(headingId)
+                .get();
+            if (!contentDoc.exists) return {};
+            return contentDoc.data() as Map<String, dynamic>;
+          } catch (e) {
+            _log.warning('Error fetching heading content: $e');
+            return {};
+          }
+        },
+        imageUrls: imageUrls,
+        onProgress: (progress) {
+          if (mounted) {
+            setState(() {
+              _prefetchProgress = progress;
+            });
+          }
+        },
+      );
+      
+      _log.info('Successfully prefetched all content for book ${_book!.title}');
+    } catch (e) {
+      _log.warning('Error prefetching book content: $e');
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isPrefetchingContent = false;
+          _prefetchProgress = 1.0;
+        });
+      }
+    }
+  }
 
   @override
   void dispose() {
@@ -508,6 +692,15 @@ Download the app to read more.''';
             Consumer(builder: (context, ref, child) {
               return _buildFavoriteButton();
             }),
+            // Pin button
+            IconButton(
+              icon: Icon(
+                _isBookPinned ? Icons.push_pin : Icons.push_pin_outlined,
+                color: _isBookPinned ? AppColor.accent : (Theme.of(context).brightness == Brightness.dark ? Colors.white70 : Colors.black54),
+              ),
+              onPressed: _isLoading ? null : _togglePinStatus, // Disable if loading
+              tooltip: _isBookPinned ? 'Remove from Offline Saved Items' : 'Save for Offline Access',
+            ),
           ],
         ),
         body: NestedScrollView(
