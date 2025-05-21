@@ -21,7 +21,31 @@ import 'models/cache_priority.dart';
 import 'models/download_progress.dart';
 import 'utils/cache_logger.dart';
 import 'utils/concurrency_utils.dart';
-import 'utils/cache_metrics_service.dart'; 
+import 'utils/cache_metrics_service.dart';
+
+// Define _CachedInMemoryEntry internally
+class _CachedInMemoryEntry {
+  final dynamic data;
+  final DateTime fetchedAt;
+  final Duration ttl;
+  DateTime lastAccessedAt;
+  final int sizeBytes;
+  // For now, L1 items are not pinnable to keep it simpler for this refactoring step.
+  // final bool isPinned; 
+
+  _CachedInMemoryEntry({
+    required this.data,
+    required this.fetchedAt,
+    required this.ttl,
+    required this.lastAccessedAt,
+    required this.sizeBytes,
+    // this.isPinned = false,
+  });
+
+  bool isExpired() {
+    return DateTime.now().isAfter(fetchedAt.add(ttl));
+  }
+}
 
 /// Central service for managing all types of caches in the app
 class CacheService {
@@ -37,6 +61,8 @@ class CacheService {
   // Initialize with a default value to prevent LateInitializationError
   late final VideoCacheManager _videoCacheManager;
   late final ImageCacheManager _imageManager;
+  // Metrics Service instance - will be initialized in the init method
+  CacheMetricsService? _metricsService;
   
   // Define local formatSize method to fix references
   static String _formatSize(int bytes) {
@@ -64,68 +90,53 @@ class CacheService {
       StreamController<DownloadProgress>.broadcast();
   
   // Memory cache for ultra-fast access during an active session
-  // This prevents data reloading when navigating between screens
-  final Map<String, dynamic> _memoryCache = {};
-  final Map<String, int> _memoryCacheTimestamps = {};
-  final Map<String, dynamic> _memoryCacheMetadata = {};
-  final int _maxMemoryCacheSize = 100 * 1024 * 1024;
+  final Map<String, _CachedInMemoryEntry> _memoryCache = {}; // Changed type
+  // final Map<String, int> _memoryCacheTimestamps = {}; // Removed
+  // final Map<String, dynamic> _memoryCacheMetadata = {}; // Removed
+  final int _maxMemoryCacheSize = 100 * 1024 * 1024; // Example: 100MB
   int _currentMemoryCacheSize = 0;
 
   // Concurrency guard: Track in-flight network fetches per cache key
   // Ensures only one network request is made for the same key at a time
   final Map<String, Future<dynamic>> _inFlightFetches = {};
 
-  // Memory cache TTL 
-  static const Duration _memoryCacheTtl = Duration(hours: 8);
+  // Memory cache TTL - This will now be per-entry, set via _CachedInMemoryEntry.ttl
+  // static const Duration _memoryCacheTtl = Duration(hours: 8); // Removed global L1 TTL
       
   // Keep track of which screen each cached item belongs to
   // This allows for efficient release of screen-specific cache when navigating away
-  final Map<String, Map<String, dynamic>> _screenMemoryCaches = {};
+  // final Map<String, Map<String, dynamic>> _screenMemoryCaches = {}; // Commented out for now
       
   /// Close all resources used by the cache service
   Future<void> dispose() async {
     _downloadProgressController.close();
     _networkInfo.dispose(); 
     _memoryCache.clear();
-    _memoryCacheTimestamps.clear();
-    _memoryCacheMetadata.clear();
+    // _memoryCacheTimestamps.clear(); // Removed
+    // _memoryCacheMetadata.clear(); // Removed
     _currentMemoryCacheSize = 0;
+    await _metricsService?.dispose(); // Dispose metrics service
+    _isDisposed = true; // Mark as disposed
+    _log.info('CacheService disposed.');
   }
       
   // Work queue for managing concurrent downloads
   final WorkQueue _downloadQueue = WorkQueue(3);
 
-  /// Create a new cache service with the specified configuration
-  CacheService({
-    HiveCacheManager? hiveManager,
-    PreferencesCacheManager? prefsManager,
-    NetworkInfo? networkInfo,
-    CacheConfig? config,
-  }) : 
-    _hiveManager = hiveManager ?? HiveCacheManager(),
-    _prefsManager = prefsManager ?? PreferencesCacheManager(),
-    _networkInfo = networkInfo ?? NetworkInfo(),
-    _config = config ?? CacheConfig.defaultConfig {
-    if (_config.enableAnalytics && _config.trackCacheMetrics) {
-      _metricsService = CacheMetricsService();
-      _log.info('CacheMetricsService initialized.');
-    } else {
-      _log.info('CacheMetricsService not initialized (analytics or tracking disabled).');
-    }
-  }
-
-  static CacheService? _instance;
-  bool _isDisposed = false;
-
-  CacheService._internal(this._config, this._hiveManager, this._prefsManager, this._networkInfo) {
+  // Private constructor for internal use by the static init method
+  CacheService._internal(this._config, this._hiveManager, this._prefsManager, this._networkInfo, this._metricsService) {
     // Initialize managers that depend on 'this' CacheService instance here
     _videoCacheManager = VideoCacheManager(cacheService: this);
     _imageManager = ImageCacheManager(this);
+    // _metricsService is passed in, already potentially initialized.
   }
+  
+  static CacheService? _instance;
+  bool _isDisposed = false;
 
   static Future<CacheService> init({
-    CacheConfig config = const CacheConfig(),
-    List<String> customBoxNames = const [],
+    CacheConfig config = const CacheConfig(), // Use const for default
+    List<String> customBoxNames = const [], // Use const for default
   }) async {
     if (_instance != null && !_instance!._isDisposed) {
       _log.info('CacheService already initialized.');
@@ -174,11 +185,23 @@ class CacheService {
     final networkInfo = NetworkInfo();
 
     // Create the CacheService instance
+    CacheMetricsService? metricsService;
+    if (config.enableAnalytics && config.trackCacheMetrics) {
+      metricsService = CacheMetricsService(trackMetrics: true); // Explicitly enable
+      await metricsService.initialize(); // Initialize metrics service
+      _log.info('CacheMetricsService initialized and metrics loaded.');
+    } else {
+      metricsService = CacheMetricsService(trackMetrics: false); // Explicitly disable
+      await metricsService.initialize(); // Still call initialize to set it up as no-op
+      _log.info('CacheMetricsService initialized (tracking disabled).');
+    }
+
     _instance = CacheService._internal(
       config,
       hiveManager,
       prefsManager,
       networkInfo,
+      metricsService, // Pass the initialized metrics service
     );
 
     // Initialize other managers that depend on the CacheService instance
@@ -322,141 +345,78 @@ class CacheService {
     required Future<T> Function() networkFetch,
     Duration? ttl,
     config.CachePolicy? policy,
-    String? screenId, 
+    String? screenId,
   }) async {
     if (!_initialized) await initialize();
+    // Ensure metrics service is available if configured
+    // This check might be redundant if init guarantees _metricsService is always non-null
+    // but good for safety if CacheService can be instantiated differently.
+    if (_config.enableAnalytics && _config.trackCacheMetrics && _metricsService == null) {
+        _metricsService = CacheMetricsService(trackMetrics: true);
+        await _metricsService!.initialize();
+    }
+
 
     final effectivePolicy = policy ?? config.CachePolicy.cacheFirst;
     final effectiveTtl = ttl ?? _config.defaultTtl;
     
     try {
-      // STEP 1: Check memory cache first (ultra-fast)
-      final memoryCached = _getFromMemoryCache<T>(key);
-      if (memoryCached != null) {
-        _log.fine('Memory cache hit for key: $key');
-        
-        // Associate with screen if provided
-        if (screenId != null) {
-          _screenMemoryCaches.putIfAbsent(screenId, () => {})[key] = memoryCached;
-        }
-        
-        // Update access stats for memory hit
-        final metadata = _memoryCacheMetadata[key] as CacheMetadata?;
-        if (metadata != null) {
-          final updatedMetadata = metadata.incrementAccessCount();
-          await _saveCacheMetadata(key, updatedMetadata); // Save to persistent store
-          _memoryCacheMetadata[key] = updatedMetadata; // Update in-memory metadata cache
-          _metricsService?.recordHit(key); // ADDED: Record hit
-          return CacheResult<T>(
-            data: memoryCached,
-            source: CacheResultSource.cache,
-            isCacheHit: true,
-            metadata: updatedMetadata // Use updated metadata
-          );
-        } else {
-          // Create a new metadata object if none exists in memory, with initial access
-          final newMetadata = CacheMetadata(
-            originalKey: key,
-            boxName: boxName,
-            timestamp: _memoryCacheTimestamps[key] ?? DateTime.now().millisecondsSinceEpoch,
-            accessCount: 1, // Initial access
-            lastAccessTimestamp: DateTime.now().millisecondsSinceEpoch // Initial access
-          );
-          await _saveCacheMetadata(key, newMetadata); // Save to persistent store
-          _memoryCacheMetadata[key] = newMetadata; // Add to in-memory metadata cache
-          _metricsService?.recordHit(key); // ADDED: Record hit
-          return CacheResult<T>(
-            data: memoryCached,
-            source: CacheResultSource.cache,
-            isCacheHit: true,
-            metadata: newMetadata
-          );
-        }
+      // STEP 1: Check memory cache first (L1)
+      final T? memoryCachedDataL1 = _getFromMemoryCache<T>(key);
+      if (memoryCachedDataL1 != null) {
+        _log.fine('L1 cache hit for key: $key in fetch()');
+        _metricsService?.recordHit(key);
+        final l2Metadata = await _getCacheMetadata(key); // Fetch L2 metadata for consistency
+        return CacheResult<T>(
+          data: memoryCachedDataL1,
+          source: CacheResultSource.cache, 
+          isCacheHit: true,
+          metadata: l2Metadata
+        );
       }
-      
-      CacheResult<T>? cachedResult;
-      
-      // STEP 2: Check persistent storage if policy allows it
-      if (effectivePolicy != config.CachePolicy.networkOnly) {
-        cachedResult = await getCachedData<T>(key: key, boxName: boxName);
-        
-        if (cachedResult.hasData) {
-          // Associate with screen if provided
-          if (screenId != null) {
-            _screenMemoryCaches.putIfAbsent(screenId, () => {})[key] = cachedResult.data;
-          }
-          
-          // Get cache metadata for checking staleness
-          // final metadata = await _getCacheMetadata(key); // Already in cachedResult.metadata
-          final CacheMetadata? existingMetadata = cachedResult.metadata;
-          final isStale = existingMetadata?.isStale(effectiveTtl) ?? true;
-          
-          // Update access stats for persistent hit
-          CacheMetadata? finalMetadata = existingMetadata;
-          if (existingMetadata != null) {
-            finalMetadata = existingMetadata.incrementAccessCount();
-            await _saveCacheMetadata(key, finalMetadata);
-          }
+      _log.finer('L1 cache miss for key: $key in fetch(). Proceeding to L2/Network.');
 
-          // Return cache immediately if policy is cacheOnly or it's not stale
-          if (effectivePolicy == config.CachePolicy.cacheOnly ||
-              !isStale) {
-            // Ensure the result uses the potentially updated metadata
-            _metricsService?.recordHit(key); // ADDED: Record hit
-            return CacheResult<T>(
-              data: cachedResult.data,
-              source: cachedResult.source,
-              isCacheHit: cachedResult.isCacheHit,
-              metadata: finalMetadata, // Use updated metadata
-              error: cachedResult.error
-            );
+      CacheResult<T>? l2CachedResult;
+      
+      // STEP 2: Check persistent storage (L2) if policy allows it
+      if (effectivePolicy != config.CachePolicy.networkOnly) {
+        l2CachedResult = await getCachedData<T>(key: key, boxName: boxName); 
+        
+        if (l2CachedResult.hasData && l2CachedResult.data != null) { 
+          final CacheMetadata? existingL2Metadata = l2CachedResult.metadata;
+          final isStale = existingL2Metadata?.isStale(effectiveTtl) ?? true;
+
+          // Note: getCachedData already populates L1 if L2 hits.
+
+          if (effectivePolicy == config.CachePolicy.cacheOnly || !isStale) {
+            return l2CachedResult; 
           }
           
-          // For staleWhileRevalidate, trigger network fetch in background then return cache
           if (effectivePolicy == config.CachePolicy.staleWhileRevalidate) {
-            // No await - don't block returning the cached data
-            _refreshCacheInBackground(
+            _refreshCacheInBackground( 
               key: key,
               boxName: boxName,
               fetch: networkFetch,
               ttl: effectiveTtl
             );
-            // Ensure the result uses the potentially updated metadata
-            _metricsService?.recordHit(key); // ADDED: Record hit
-            return CacheResult<T>(
-              data: cachedResult.data,
-              source: cachedResult.source,
-              isCacheHit: cachedResult.isCacheHit,
-              metadata: finalMetadata, // Use updated metadata
-              error: cachedResult.error
-            );
+            return l2CachedResult; 
           }
           
-          // For cacheFirst, return cache when found even if stale
           if (effectivePolicy == config.CachePolicy.cacheFirst) {
-            // Optionally refresh stale data in background for better user experience
             if (isStale && await isConnected()) {
-              _refreshCacheInBackground(
+              _refreshCacheInBackground( 
                 key: key,
                 boxName: boxName,
                 fetch: networkFetch,
                 ttl: effectiveTtl
               );
             }
-            // Ensure the result uses the potentially updated metadata
-            _metricsService?.recordHit(key); // ADDED: Record hit
-            return CacheResult<T>(
-              data: cachedResult.data,
-              source: cachedResult.source,
-              isCacheHit: cachedResult.isCacheHit,
-              metadata: finalMetadata, // Use updated metadata
-              error: cachedResult.error
-            );
+            return l2CachedResult; 
           }
         }
       }
             
-      // STEP 4: Fetch from network if allowed by policy and connectivity
+      // STEP 3: Fetch from network if allowed by policy and connectivity
       final isOnline = await isConnected();
       if (isOnline &&
           (effectivePolicy == config.CachePolicy.networkFirst ||
@@ -498,21 +458,14 @@ class CacheService {
             final T fetchedData = await networkCall;
             _log.fine('Network fetch successful for key: $key');
             
-            // Cache the newly fetched data
+            // Cache the newly fetched data (cacheData handles L2 and L1 population)
             final newMetadata = await cacheData<T>(
               key: key, 
               data: fetchedData, 
               boxName: boxName, 
               ttl: effectiveTtl,
-              // 기존 메타데이터가 있다면 isPinned 상태를 유지
-              isPinned: cachedResult?.metadata?.isPinned ?? false 
+              isPinned: l2CachedResult?.metadata?.isPinned ?? false 
             );
-            
-            // Put into memory cache as well
-            _putInMemoryCache(key, fetchedData, newMetadata);
-            if (screenId != null) {
-               _screenMemoryCaches.putIfAbsent(screenId, () => {})[key] = fetchedData;
-            }
             
             return CacheResult<T>(
               data: fetchedData, 
@@ -552,9 +505,13 @@ class CacheService {
       }
       
       // If we reach here with cacheOnly policy, it means cache was empty
-      throw Exception('Data not found in cache and network fetch not allowed');
-    } catch (e) {
-      _log.severe('Error fetching data for key $key: $e');
+      // This is a miss if not found in L1/L2 and network is not allowed by policy.
+      if (effectivePolicy == config.CachePolicy.cacheOnly && (l2CachedResult == null || !l2CachedResult.hasData)) {
+         _metricsService?.recordMiss(key); 
+      }
+      throw Exception('Data not found in cache for key $key and network fetch not allowed by policy.');
+    } catch (e, stackTrace) {
+      _log.severe('Error in fetch for key $key: $e', e, stackTrace);
       rethrow;
     }
   }
@@ -565,29 +522,26 @@ class CacheService {
     required T data,
     required String boxName,
     Duration? ttl,
-    String? screenId, 
-    bool isPinned = false, // Added isPinned parameter back
+    // String? screenId, // Screen specific L1 cache commented out
+    bool isPinned = false, 
   }) async {
     if (!_initialized) await initialize();
+    final effectiveL2Ttl = ttl ?? _config.defaultTtl; // This is TTL for L2 (persistent)
 
     try {
-      // Create metadata
-      final metadata = CacheMetadata(
+      final dataSizeBytes = CacheUtils.calculateObjectSize(data);
+      final l2Metadata = CacheMetadata( // This is metadata for L2 (persistent cache)
         originalKey: key,
         boxName: boxName,
         timestamp: DateTime.now().millisecondsSinceEpoch,
         lastAccessTimestamp: DateTime.now().millisecondsSinceEpoch,
-        accessCount: 1,
-        ttlMillis: (ttl ?? _config.defaultTtl).inMilliseconds,
-        dataSizeBytes: CacheUtils.calculateObjectSize(data),
-        isPinned: isPinned, // Use isPinned parameter here
-        // eTag and version can be set later if available from network responses
+        accessCount: 1, // Initial access for L2
+        ttlMillis: effectiveL2Ttl.inMilliseconds,
+        dataSizeBytes: dataSizeBytes,
+        isPinned: isPinned, 
       );
       
-      // STEP 1: Add to memory cache for ultra-fast access
-      _putInMemoryCache(key, data, metadata, screenId: screenId);
-      
-      // STEP 2: Store data in persistent cache
+      // STEP 1: Store data in persistent cache (L2)
       await _hiveManager.put(
         key: key,
         data: data,
@@ -600,7 +554,7 @@ class CacheService {
       // STEP 3: Store the authoritative CacheMetadata object using CacheService's mechanism
       await _saveCacheMetadata(key, metadata);
       
-      _metricsService?.recordWrite(key); // ADDED: Record write
+      _metricsService?.recordWrite(key); 
       CacheLogger.logCacheWrite(key, boxName, metadata.dataSizeBytes); // Use dataSizeBytes from CacheService's metadata
       _log.fine('Cached data for key: $key with TTL: ${metadata.ttl.inHours} hours');
       return metadata; // Return the created metadata
@@ -612,133 +566,140 @@ class CacheService {
 
   /// Get data from memory cache
   T? _getFromMemoryCache<T>(String key) {
-    if (_memoryCache.containsKey(key)) {
-      final timestamp = _memoryCacheTimestamps[key] ?? 0;
-      final now = DateTime.now().millisecondsSinceEpoch;
-      
-      // Check if memory cache entry is still valid
-      if (now - timestamp < _memoryCacheTtl.inMilliseconds) {
-        // Update timestamp to mark as recently accessed
-        _memoryCacheTimestamps[key] = now;
-        return _memoryCache[key] as T?;
-      } else {
-        // Remove expired memory cache entry
-        _removeFromMemoryCache(key);
+    final entry = _memoryCache[key];
+    if (entry != null) {
+      if (entry.isExpired()) {
+        _log.fine('L1 cache entry for $key expired. Removing.');
+        _removeFromMemoryCache(key); // This also updates _currentMemoryCacheSize
+        return null;
       }
+      entry.lastAccessedAt = DateTime.now(); // Update for LRU
+      _log.finer('L1 cache hit for $key. Last accessed updated.');
+      return entry.data as T?;
     }
-    
+    _log.finer('L1 cache miss for $key.');
     return null;
   }
   
   /// Add data to memory cache
-  void _putInMemoryCache<T>(String key, T data, CacheMetadata? metadata, {String? screenId}) {
-    if (screenId != null) {
-      _screenMemoryCaches.putIfAbsent(screenId, () => {})[key] = data;
-    } else {
-      int sizeOfNewData = 0;
-      if (metadata != null) {
-        sizeOfNewData = metadata.dataSizeBytes;
-      }
+  void _putInMemoryCache<T>(String key, T data, {required Duration ttl, required int sizeBytes}) {
+    // If item already exists, remove it first to update its size and TTL correctly.
+    if (_memoryCache.containsKey(key)) {
+      _removeFromMemoryCache(key);
+    }
 
-      if (_currentMemoryCacheSize + sizeOfNewData > _maxMemoryCacheSize) {
-        _evictFromMemoryCache(sizeOfNewData);
-      }
-      _memoryCache[key] = data;
-      _memoryCacheTimestamps[key] = DateTime.now().millisecondsSinceEpoch;
-      if (metadata != null) { 
-        _memoryCacheMetadata[key] = metadata;
-        final int? dataSize = metadata.dataSizeBytes;
-        _currentMemoryCacheSize += (dataSize ?? 0);
-      }
+    if (sizeBytes > _maxMemoryCacheSize) {
+      _log.warning('Item $key ($sizeBytes bytes) is larger than max L1 cache size ($_maxMemoryCacheSize bytes). Cannot cache in L1.');
+      return;
+    }
+
+    if (_currentMemoryCacheSize + sizeBytes > _maxMemoryCacheSize) {
+      _evictFromMemoryCache(sizeBytes); // Request to free at least sizeBytes
+    }
+
+    // After potential eviction, check again if there's enough space
+    if (_currentMemoryCacheSize + sizeBytes <= _maxMemoryCacheSize) {
+      final newEntry = _CachedInMemoryEntry(
+        data: data,
+        fetchedAt: DateTime.now(),
+        ttl: ttl,
+        lastAccessedAt: DateTime.now(),
+        sizeBytes: sizeBytes,
+      );
+      _memoryCache[key] = newEntry;
+      _currentMemoryCacheSize += sizeBytes;
+      _log.finer('L1 cache stored $key ($sizeBytes bytes). Current L1 size: $_currentMemoryCacheSize');
+    } else {
+      _log.warning('Not enough space in L1 for $key ($sizeBytes bytes) even after eviction. Current L1 size: $_currentMemoryCacheSize');
     }
   }
 
   /// Remove data from memory cache
   void _removeFromMemoryCache(String key) {
-    if (_memoryCache.containsKey(key)) {
-      final data = _memoryCache[key];
-      final estimatedSize = CacheUtils.calculateObjectSize(data);
-      
-      _memoryCache.remove(key);
-      _memoryCacheTimestamps.remove(key);
-      _memoryCacheMetadata.remove(key);
-      _currentMemoryCacheSize -= estimatedSize;
-      
-      if (_currentMemoryCacheSize < 0) _currentMemoryCacheSize = 0;
+    final entry = _memoryCache.remove(key);
+    if (entry != null) {
+      _currentMemoryCacheSize -= entry.sizeBytes;
+      if (_currentMemoryCacheSize < 0) _currentMemoryCacheSize = 0; // Sanity check
+      _log.finer('L1 cache removed $key (${entry.sizeBytes} bytes). Current L1 size: $_currentMemoryCacheSize');
     }
   }
   
   /// Evict items from memory cache to free up space
-  Future<void> _evictFromMemoryCache(int requiredBytes) async {
+  Future<void> _evictFromMemoryCache(int requiredBytesToFree) async {
     await _evictionLock.synchronized(() async {
-      _log.info('Attempting to evict $requiredBytes bytes from memory cache. Current size: $_currentMemoryCacheSize');
-      if (_currentMemoryCacheSize <= _maxMemoryCacheSize && requiredBytes <= 0) return;
+      _log.info('L1 Eviction: Attempting to free $requiredBytesToFree bytes. Current L1 size: $_currentMemoryCacheSize. Max L1 size: $_maxMemoryCacheSize');
+      if (_currentMemoryCacheSize <= _maxMemoryCacheSize && requiredBytesToFree <= 0) {
+         _log.info('L1 Eviction: No eviction needed or nothing to free.');
+        return;
+      }
 
-      List<MapEntry<String, int>> sortedItems = _memoryCacheTimestamps.entries.toList()
-        ..sort((a, b) => a.value.compareTo(b.value)); // Sort by oldest
+      // Sort entries by lastAccessedAt (LRU)
+      List<MapEntry<String, _CachedInMemoryEntry>> sortedEntries = _memoryCache.entries.toList()
+        ..sort((a, b) => a.value.lastAccessedAt.compareTo(b.value.lastAccessedAt));
 
       int bytesFreed = 0;
-      for (var itemToEvict in sortedItems) {
-        if (bytesFreed >= requiredBytes) break;
+      List<String> evictedKeys = [];
 
-        final itemData = _memoryCache[itemToEvict.key];
-        final itemMetadata = _memoryCacheMetadata[itemToEvict.key] as CacheMetadata?;
-
-        if (itemMetadata?.isPinned == true) { // Check if item is pinned
-          _log.finer('Skipping eviction of pinned memory item: ${itemToEvict.key}');
-          continue; // Do not evict pinned items
-        }
-
-        final itemSize = CacheUtils.calculateObjectSize(itemData).round(); // CORRECTED: Used CacheUtils and .round()
+      for (var entryMap in sortedEntries) {
+        // Stop if enough space is freed OR if trying to free space for a new item,
+        // ensure we don't evict more than necessary if the cache is already below max size.
+        if (bytesFreed >= requiredBytesToFree && (_currentMemoryCacheSize - bytesFreed) <= _maxMemoryCacheSize) break;
         
-        _memoryCache.remove(itemToEvict.key);
-        _memoryCacheTimestamps.remove(itemToEvict.key);
-        _memoryCacheMetadata.remove(itemToEvict.key);
-        _currentMemoryCacheSize -= itemSize; // Ensure itemSize is int
-        bytesFreed += itemSize; // Ensure itemSize is int
+        // L1 items are not considered pinnable in this iteration. If they were:
+        // if (entryMap.value.isPinned) {
+        //   _log.finer('L1 Eviction: Skipping pinned L1 item: ${entryMap.key}');
+        //   continue;
+        // }
 
-        _metricsService?.recordEviction(itemToEvict.key, reason: 'memory_pressure_eviction'); // CORRECTED: Use key
-        _log.fine('Evicted ${itemToEvict.key} ($itemSize bytes) from memory cache.');
+        _removeFromMemoryCache(entryMap.key); // This updates _currentMemoryCacheSize
+        bytesFreed += entryMap.value.sizeBytes;
+        evictedKeys.add(entryMap.key);
+        _metricsService?.recordEviction(entryMap.key, reason: 'l1_memory_pressure_lru');
       }
-      _log.info('Freed $bytesFreed bytes from memory cache. New size: $_currentMemoryCacheSize');
+      
+      if (evictedKeys.isNotEmpty) {
+        _log.info('L1 Eviction: Freed $bytesFreed bytes. Evicted keys: ${evictedKeys.join(', ')}. New L1 size: $_currentMemoryCacheSize');
+      } else {
+        _log.info('L1 Eviction: No items were evicted. Bytes freed: $bytesFreed. New L1 size: $_currentMemoryCacheSize');
+      }
     });
   }
 
-  /// Pre-load a screen's data into memory cache
-  /// This is useful for navigation performance optimization
-  Future<void> preloadScreenData(String screenId, List<String> keys, List<String> boxNames) async {
-    if (!_initialized) await initialize();
+  // /// Pre-load a screen's data into memory cache
+  // /// This is useful for navigation performance optimization
+  // Future<void> preloadScreenData(String screenId, List<String> keys, List<String> boxNames) async {
+  //   if (!_initialized) await initialize();
     
-    assert(keys.length == boxNames.length, 'Keys and box names must have the same length');
+  //   assert(keys.length == boxNames.length, 'Keys and box names must have the same length');
     
-    _log.fine('Preloading ${keys.length} items for screen: $screenId');
+  //   _log.fine('Preloading ${keys.length} items for screen: $screenId');
     
-    for (int i = 0; i < keys.length; i++) {
-      final key = keys[i];
-      final boxName = boxNames[i];
+  //   for (int i = 0; i < keys.length; i++) {
+  //     final key = keys[i];
+  //     final boxName = boxNames[i];
       
-      // Load into memory cache if not already there
-      if (!_memoryCache.containsKey(key)) {
-        final cacheResult = await getCachedData<dynamic>(key: key, boxName: boxName);
-        if (cacheResult.hasData) {
-          _log.fine('Preloaded cache item for key: $key');
-        }
-      }
-    }
-  }
+  //     // Load into memory cache if not already there
+  //     if (!_memoryCache.containsKey(key)) {
+  //       final cacheResult = await getCachedData<dynamic>(key: key, boxName: boxName);
+  //       if (cacheResult.hasData) {
+  //         _log.fine('Preloaded cache item for key: $key');
+  //       }
+  //     }
+  //   }
+  // }
   
-  /// Release memory cache for a specific screen
-  /// Call this when navigating away from a screen and its data won't be needed soon
-  void releaseScreenMemoryCache(String screenId) {
-    if (_screenMemoryCaches.containsKey(screenId)) {
-      final screenCache = _screenMemoryCaches.remove(screenId);
-      if (screenCache != null) {
-        CacheLogger.info('Released memory cache for screen: $screenId, removed ${screenCache.length} items.');
-      }
-    } else {
-      CacheLogger.info('No memory cache found to release for screen: $screenId');
-    }
-  }
+  // /// Release memory cache for a specific screen
+  // /// Call this when navigating away from a screen and its data won't be needed soon
+  // void releaseScreenMemoryCache(String screenId) {
+  //   // if (_screenMemoryCaches.containsKey(screenId)) {
+  //   //   final screenCache = _screenMemoryCaches.remove(screenId);
+  //   //   if (screenCache != null) {
+  //   //     CacheLogger.info('Released memory cache for screen: $screenId, removed ${screenCache.length} items.');
+  //   //   }
+  //   // } else {
+  //   //   CacheLogger.info('No memory cache found to release for screen: $screenId');
+  //   // }
+  // }
 
   /// Get cached data with type conversion, following the cache-first approach
   /// First checks the ultra-fast memory cache, then persistent storage
@@ -746,42 +707,29 @@ class CacheService {
     if (!_initialized) await initialize();
     
     try {
-      // Check memory cache first
-      final memoryCached = _getFromMemoryCache<T>(key);
-      if (memoryCached != null) {
-        _log.fine('Memory cache hit for key: $key');
-        final metadata = _memoryCacheMetadata[key] as CacheMetadata?;
-        if (metadata != null) {
-          _metricsService?.recordHit(key); // ADDED: Record hit
-          return CacheResult<T>(
-            data: memoryCached,
-            source: CacheResultSource.cache,
-            isCacheHit: true,
-            metadata: metadata
-          );
-        } else {
-          // Create basic metadata if none exists
-          final newMetadata = CacheMetadata(
-            originalKey: key,
-            boxName: boxName,
-            timestamp: _memoryCacheTimestamps[key] ?? DateTime.now().millisecondsSinceEpoch
-          );
-          return CacheResult<T>(
-            data: memoryCached,
-            source: CacheResultSource.cache,
-            isCacheHit: true,
-            metadata: newMetadata
-          );
-        }
+      // Check memory cache first (L1) - _getFromMemoryCache handles expiry and LRU update
+      final T? memoryCachedData = _getFromMemoryCache<T>(key);
+      if (memoryCachedData != null) {
+        _log.fine('L1 cache hit for key: $key (in getCachedData).');
+        _metricsService?.recordHit(key);
+        
+        // If L1 hits, we still need to return consistent L2 metadata.
+        final l2Metadata = await _getCacheMetadata(key); 
+        return CacheResult<T>(
+          data: memoryCachedData,
+          source: CacheResultSource.cache, 
+          isCacheHit: true,
+          metadata: l2Metadata 
+        );
       }
+      _log.finer('L1 cache miss for key: $key (in getCachedData). Checking L2.');
       
-      // Check persistent storage using the HiveCacheManager
+      // Check persistent storage (L2) using the HiveCacheManager
       try {
-        // Get the Hive box through the manager
-        final List<String> keysInBox = await _hiveManager.getAllKeys(boxName); // NEW - Corrected
-        if (!keysInBox.contains(key)) { // NEW - Corrected
-          _log.fine('Cache miss for key: $key');
-          _metricsService?.recordMiss(key); // ADDED: Record miss
+        final List<String> keysInBox = await _hiveManager.getAllKeys(boxName);
+        if (!keysInBox.contains(key)) {
+          _log.fine('L2 cache miss for key: $key in box: $boxName.');
+          _metricsService?.recordMiss(key); // This is a definitive miss (not in L1 or L2)
           return CacheResult<T>(
             data: null,
             source: CacheResultSource.notFound,
@@ -789,27 +737,28 @@ class CacheService {
           );
         }
         
-        // Try to convert the raw data to the expected type
         T? typedData;
         try {
-          typedData = await _hiveManager.get(key: key, boxName: boxName) as T; // NEW - Corrected with named arguments
-        } catch (e) {
-          _log.warning('Type conversion error for cached data: $e');
+          typedData = await _hiveManager.get(key: key, boxName: boxName) as T;
+        } catch (e, stackTrace) {
+          _log.warning('L2 type conversion error for cached data key $key: $e', e, stackTrace);
           return CacheResult<T>(
             data: null,
             source: CacheResultSource.error,
             isCacheHit: false,
-            error: Exception('Type conversion error')
+            error: CacheError('Type conversion error for L2 data', stackTrace)
           );
         }
         
-        // Get metadata
-        final metadata = await _getCacheMetadata(key);
+        final l2Metadata = await _getCacheMetadata(key); // Get L2 metadata
         
-        // Add to memory cache for faster subsequent access
-        _putInMemoryCache(key, typedData, metadata);
+        // If data found in L2, add it to L1 for faster subsequent access
+        if (typedData != null && l2Metadata != null) {
+           _putInMemoryCache(key, typedData, ttl: l2Metadata.ttl, sizeBytes: l2Metadata.dataSizeBytes);
+           _log.fine('Populated L1 with data from L2 for key: $key');
+        }
         
-        _metricsService?.recordHit(key); // ADDED: Record hit
+        _metricsService?.recordHit(key); // Record L2 hit (implies L1 miss previously)
         return CacheResult<T>(
           data: typedData,
           source: CacheResultSource.cache,
@@ -1003,11 +952,11 @@ class CacheService {
       await Future.delayed(Duration(minutes: 1 + Random().nextInt(2)));
       
       // First, clear memory cache if needed
-      _cleanupMemoryCache();
+      _cleanupMemoryCache(); // This calls recordEviction internally
       
       // Next, clear expired items from persistent storage
       if (await isConnected()) {
-        await _clearExpiredCaches();
+        await _clearExpiredCaches(); // This calls recordEviction internally
       }
       
       // Schedule the next cleanup
@@ -1041,13 +990,12 @@ class CacheService {
       if (_currentMemoryCacheSize <= _maxMemoryCacheSize * 0.7) break;
       
       final key = entry.key;
-      _removeFromMemoryCache(key);
-      _metricsService?.recordEviction(key, reason: 'memory_pressure_cleanup'); // CORRECTED: Use key
+      _removeFromMemoryCache(key); // This just removes, doesn't record eviction
+      _metricsService?.recordEviction(key, reason: 'memory_pressure_cleanup'); 
       removedCount++;
     }
     
     _log.info('Memory cache cleanup complete. Removed $removedCount items, new size: ${_formatSize(_currentMemoryCacheSize)}');
-    // REMOVED: _metricsService?.recordEviction(removedCount, reason: 'memory_pressure'); // This was incorrect
   }
   
   /// Clear expired items from cache
@@ -1056,46 +1004,49 @@ class CacheService {
       // Clear expired items from all managed boxes manually
       // Delete any metadata with isExpired == true
       final metadataBox = Hive.box<CacheMetadata>(CacheConstants.metadataBoxName);
-      final expiredKeys = <String>[];
+      final expiredKeysMap = <String, String>{}; // Stores originalKey -> metadataKey
       
       for (final metaKey in metadataBox.keys) {
-        if (metaKey.startsWith('metadata:')) {
+        if (metaKey is String && metaKey.startsWith('metadata:')) { // Ensure metaKey is String
           final metadata = metadataBox.get(metaKey);
           if (metadata != null && metadata.isExpired && !metadata.isPinned) {
             // Extract the original cache key and box name from metadata key
             final originalKey = metaKey.substring('metadata:'.length);
-            expiredKeys.add(originalKey);
+            expiredKeysMap[originalKey] = metaKey;
           }
         }
       }
       
       // Delete expired data from respective boxes
-      for (final expiredKey in expiredKeys) {
+      for (final entry in expiredKeysMap.entries) {
+        final expiredKeyWithBox = entry.key; // This is "boxName:actualKey"
+        final metadataFullKey = entry.value; // This is "metadata:boxName:actualKey"
         try {
           // Extract box name and key from the combined key
-          final parts = expiredKey.split(':');
+          final parts = expiredKeyWithBox.split(':');
           if (parts.length >= 2) {
             final boxName = parts[0];
             final key = parts.sublist(1).join(':'); 
             
-            final bool itemExists = await _hiveManager.exists(key: key, boxName: boxName); // NEW - Corrected
+            final bool itemExists = await _hiveManager.exists(key: key, boxName: boxName); 
             if (!itemExists) {
-              _log.warning('Expired cache item $key in box $boxName does not exist, skipping deletion');
+              _log.warning('Expired cache item $key in box $boxName does not exist, skipping deletion of data, removing metadata.');
+              await metadataBox.delete(metadataFullKey); // Remove its metadata
               continue;
             }
             
             await _hiveManager.delete(key, boxName);
-            await metadataBox.delete('metadata:$expiredKey');
+            await metadataBox.delete(metadataFullKey); // Use the full metadata key for deletion
             
             _log.fine('Deleted expired cache for key: $key in box: $boxName');
-            _metricsService?.recordEviction(expiredKey, reason: 'expired'); // ADDED: Record eviction
+            _metricsService?.recordEviction(expiredKeyWithBox, reason: 'expired'); 
           }
         } catch (e) {
-          _log.warning('Error deleting expired cache for key $expiredKey: $e');
+          _log.warning('Error deleting expired cache for key $expiredKeyWithBox: $e');
         }
       }
       
-      _log.info('Cleared ${expiredKeys.length} expired cache entries');
+      _log.info('Cleared ${expiredKeysMap.length} expired cache entries');
     } catch (e) {
       _log.warning('Error clearing expired caches: $e');
     }
@@ -1268,7 +1219,7 @@ class CacheService {
     double overallProgress = 0.0;
     final reportProgress = (double progress) {
       overallProgress = progress;
-      onProgress?.call(progress);
+      // onProgress?.call(progress); // Assuming onProgress is defined elsewhere or not used in this snippet
     };
     
     try {
@@ -1283,7 +1234,7 @@ class CacheService {
       _log.info('Prefetching book data for $bookId');
       reportProgress(0.1);
       final bookData = await fetchBookData();
-      await cacheData(
+      await cacheData( // This records a write
         key: '${CacheConstants.bookKeyPrefix}$bookId',
         data: bookData,
         boxName: CacheConstants.booksBoxName,
@@ -1294,7 +1245,7 @@ class CacheService {
       _log.info('Prefetching headings for book $bookId');
       reportProgress(0.2);
       final headings = await fetchHeadings();
-      await cacheData(
+      await cacheData( // This records a write
         key: '${CacheConstants.bookKeyPrefix}${bookId}_headings',
         data: headings,
         boxName: CacheConstants.headingsBoxName,
@@ -1320,7 +1271,8 @@ class CacheService {
             try {
               // Check if already cached
               final cacheKey = '${CacheConstants.headingContentKeyPrefix}$headingId';
-              final cached = await getCachedData(
+              // getCachedData records hits/misses
+              final cached = await getCachedData( 
                 key: cacheKey,
                 boxName: CacheConstants.contentBoxName,
               );
@@ -1329,7 +1281,7 @@ class CacheService {
                 // Only fetch if not already cached
                 final headingContent = await fetchHeadingContent(headingId);
                 if (headingContent.isNotEmpty) {
-                  await cacheData(
+                  await cacheData( // This records a write
                     key: cacheKey,
                     data: headingContent,
                     boxName: CacheConstants.contentBoxName,
@@ -1353,7 +1305,71 @@ class CacheService {
         await Future.wait(futures);
       }
       
-      // Step 5: Prefetch images if any
+      // Step 5: Prefetch images if any - Assuming imageUrls is defined elsewhere
+      // if (imageUrls.isNotEmpty) {
+      //   _log.info('Prefetching ${imageUrls.length} images for book $bookId');
+      //   reportProgress(0.8);
+        
+      //   // Use ImageCacheManager for image prefetching
+      //   final batchSize = 3; // Limit parallel downloads
+      //   for (int i = 0; i < imageUrls.length; i += batchSize) {
+      //     final batch = imageUrls.skip(i).take(batchSize).toList();
+      //     final futures = <Future<void>>[];
+          
+      //     for (final url in batch) {
+      //       futures.add(_imageManager.preloadImage(url));
+      //     }
+          
+      //     await Future.wait(futures);
+      //     reportProgress(0.8 + 0.2 * (i + batch.length) / imageUrls.length);
+      //   }
+      // }
+      
+      // Mark book as high priority for retention
+      await updateBookPriority(bookId, CachePriorityLevel.high);
+      
+      _log.info('Successfully prefetched all content for book $bookId');
+      reportProgress(1.0);
+    } catch (e) {
+      _log.severe('Error prefetching book content: $e');
+      // Ensure final progress callback even on error
+      if (overallProgress < 1.0) reportProgress(1.0);
+    }
+  }
+  
+  /// Check if a book is fully downloaded and available offline
+  Future<bool> isBookDownloaded(String bookId) async {
+    if (!_initialized) await initialize();
+    
+    try {
+      // Check if book data is cached
+      // getCachedData records hits/misses internally
+      final bookResult = await getCachedData( 
+        key: '${CacheConstants.bookKeyPrefix}$bookId',
+        boxName: CacheConstants.booksBoxName,
+      );
+      
+      if (!bookResult.hasData) return false;
+      
+      // Check if headings are cached
+      // getCachedData records hits/misses internally
+      final headingsResult = await getCachedData( 
+        key: '${CacheConstants.bookKeyPrefix}${bookId}_headings',
+        boxName: CacheConstants.headingsBoxName,
+      );
+      
+      if (!headingsResult.hasData) return false;
+      
+      // Check if this book has high priority (fully downloaded)
+      final priority = _bookPriorities[bookId];
+      return priority?.level == CachePriorityLevel.high;
+    } catch (e) {
+      _log.warning('Error checking if book $bookId is downloaded: $e');
+      return false;
+    }
+  }
+  
+  /// Get a list of all downloaded books
       if (imageUrls.isNotEmpty) {
         _log.info('Prefetching ${imageUrls.length} images for book $bookId');
         reportProgress(0.8);
@@ -1446,9 +1462,9 @@ class CacheService {
       }
       
       final result = await fetch();
-      await cacheData(key: key, data: result, boxName: boxName, ttl: ttl);
+      // cacheData internally calls _metricsService?.recordWrite(key);
+      await cacheData(key: key, data: result, boxName: boxName, ttl: ttl); 
       _log.fine('Background refresh completed for key: $key');
-      _metricsService?.recordWrite(key); // ADDED: Record write
     } catch (e) {
       _log.warning('Background refresh failed for key $key: $e');
     }
@@ -1498,10 +1514,11 @@ class CacheService {
       // Remove associated metadata from CacheService's metadata tracking
       _memoryCacheMetadata.remove(key);
       // Also attempt to remove from Hive-based metadata store, if it was persisted by _saveCacheMetadata
-      await _hiveManager.delete(key, CacheConstants.metadataBoxName); 
+      // The metadata key in Hive is 'metadata:$key'
+      await _hiveManager.delete('metadata:$key', CacheConstants.metadataBoxName); 
 
       _log.info('Successfully removed item and its metadata for key: $key from box: $boxName');
-      _metricsService?.recordEviction(key, reason: 'manual_remove'); // ADDED: Record eviction
+      _metricsService?.recordEviction(key, reason: 'manual_remove'); 
     } catch (e, stackTrace) {
       _log.severe('Error removing item for key: $key from box: $boxName', e, stackTrace);
       rethrow; // Or handle more gracefully depending on desired error propagation
@@ -1516,7 +1533,7 @@ class CacheService {
       // Also clear any memory cache entries that might be related, though typically box clearing is for persistent only.
       // For simplicity, we are not clearing specific memory cache items here, as they are managed by TTL / screen.
       _log.info('Cleared all entries from Hive box: $boxName');
-      _metricsService?.recordBoxPurge(boxName); // CORRECTED: Use recordBoxPurge
+      _metricsService?.recordBoxPurge(boxName); 
     } catch (e, stackTrace) {
       _log.severe('Error clearing Hive box: $boxName', e, stackTrace);
       rethrow;

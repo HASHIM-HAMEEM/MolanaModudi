@@ -1,3 +1,4 @@
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -337,21 +338,24 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                                             ),
                                             child: ClipRRect(
                                               borderRadius: BorderRadius.circular(8),
-                                              child: book.thumbnailUrl != null && book.thumbnailUrl!.isNotEmpty
-                                                  ? Image.network(
-                                                      book.thumbnailUrl!,
+                                              child: (book.thumbnailUrl != null && book.thumbnailUrl!.isNotEmpty)
+                                                  ? CachedNetworkImage(
+                                                      imageUrl: book.thumbnailUrl!,
+                                                      cacheKey: 'thumb_${book.firestoreDocId}',
                                                       fit: BoxFit.cover,
-                                                      errorBuilder: (context, error, stackTrace) => const Center(
-                                                        child: Icon(Icons.broken_image, color: Colors.grey),
+                                                      placeholder: (context, url) => Container(
+                                                        color: Colors.grey[300], // Placeholder color
+                                                        child: const Center(child: CircularProgressIndicator(strokeWidth: 2)),
                                                       ),
-                                                      loadingBuilder: (context, child, loadingProgress) {
-                                                        if (loadingProgress == null) return child;
-                                                        return const Center(child: CircularProgressIndicator(strokeWidth: 2));
-                                                      },
+                                                      errorWidget: (context, url, error) => Container(
+                                                        color: Colors.grey[300], // Error placeholder color
+                                                        child: const Center(child: Icon(Icons.book, color: Colors.grey)),
+                                                      ),
                                                     )
-                                                  : const Center(
-                                                      child: Icon(Icons.book, color: Colors.grey),
-                                                    ),
+                                                  : Container( // Fallback for no thumbnail URL
+                                                      color: Colors.grey[300],
+                                                      child: const Center(child: Icon(Icons.book, color: Colors.grey)),
+                                                    )
                                             ),
                                           ),
                                         ),

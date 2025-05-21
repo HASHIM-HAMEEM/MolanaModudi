@@ -13,6 +13,7 @@ import 'package:modudi/core/services/gemini_service.dart';
 import 'package:modudi/features/books/data/models/book_models.dart';
 import 'package:modudi/features/reading/domain/repositories/reading_repository.dart';
 import 'package:modudi/features/reading/data/models/bookmark_model.dart';
+import 'package:modudi/features/reading/domain/entities/book_structure.dart'; // Added import
 import 'package:shared_preferences/shared_preferences.dart';
 
 class ReadingRepositoryImpl implements ReadingRepository {
@@ -918,16 +919,247 @@ class ReadingRepositoryImpl implements ReadingRepository {
     }
   }
 
+  // --- Methods from BooksRepository ---
+
+  @override
+  Future<List<Book>> getBooks({String? category, int limit = 50, dynamic startAfter}) async {
+    final cacheKey = category != null ? 'books_category_${category}_limit_${limit}_startAfter_${startAfter?.id ?? 'none'}' : 'all_books_limit_${limit}_startAfter_${startAfter?.id ?? 'none'}';
+    try {
+      final cacheResult = await _cacheService.fetch<List<dynamic>>(
+        key: cacheKey,
+        boxName: CacheConstants.booksBoxName,
+        networkFetch: () async {
+          _log.info('Fetching books from Firestore: category=$category, limit=$limit');
+          Query query = _firestore.collection('books');
+          if (category != null) {
+            query = query.where('tags', arrayContains: category);
+          }
+          if (startAfter != null) {
+            query = query.startAfterDocument(startAfter);
+          }
+          final querySnapshot = await query.limit(limit).get();
+          return querySnapshot.docs.map((doc) => doc.data()).toList();
+        },
+        ttl: const Duration(hours: 1),
+      );
+
+      if (cacheResult?.data != null) {
+        return cacheResult!.data!
+            .map((data) => Book.fromMap(data['firestoreDocId'] ?? (data['id'] ?? FirebaseFirestore.instance.collection('dummy').doc().id), Map<String,dynamic>.from(data)))
+            .toList();
+      }
+      return [];
+    } catch (e) {
+      _log.severe('Error getting books: $e');
+      return [];
+    }
+  }
+
+  @override
+  Future<List<Book>> searchBooks(String query) async {
+    final cacheKey = 'search_books_$query';
+    try {
+      final cacheResult = await _cacheService.fetch<List<dynamic>>(
+        key: cacheKey,
+        boxName: CacheConstants.searchBoxName, // Using a separate box for search results
+        networkFetch: () async {
+          _log.info('Searching books in Firestore for query: $query');
+          final querySnapshot = await _firestore
+              .collection('books')
+              .orderBy('title')
+              .startAt([query])
+              .endAt(['$query\uf8ff'])
+              .limit(20)
+              .get();
+          return querySnapshot.docs.map((doc) => doc.data()).toList();
+        },
+        ttl: const Duration(minutes: 10),
+      );
+
+      if (cacheResult?.data != null) {
+        return cacheResult!.data!
+            .map((data) => Book.fromMap(data['firestoreDocId'] ?? (data['id'] ?? FirebaseFirestore.instance.collection('dummy').doc().id), Map<String,dynamic>.from(data)))
+            .toList();
+      }
+      return [];
+    } catch (e) {
+      _log.severe('Error searching books: $e');
+      return [];
+    }
+  }
+
+  @override
+  Future<List<Book>> getFeaturedBooks({int limit = 10}) async {
+    const cacheKey = 'featured_books';
+    try {
+      final cacheResult = await _cacheService.fetch<List<dynamic>>(
+        key: cacheKey,
+        boxName: CacheConstants.booksBoxName,
+        networkFetch: () async {
+          _log.info('Fetching featured books from Firestore, limit=$limit');
+          final querySnapshot = await _firestore
+              .collection('books')
+              .orderBy('title') // Consider a 'featured' flag or different ordering
+              .limit(limit)
+              .get();
+          return querySnapshot.docs.map((doc) => doc.data()).toList();
+        },
+        ttl: const Duration(hours: 6),
+      );
+
+      if (cacheResult?.data != null) {
+        return cacheResult!.data!
+            .map((data) => Book.fromMap(data['firestoreDocId'] ?? (data['id'] ?? FirebaseFirestore.instance.collection('dummy').doc().id), Map<String,dynamic>.from(data)))
+            .toList();
+      }
+      return [];
+    } catch (e) {
+      _log.severe('Error getting featured books: $e');
+      return [];
+    }
+  }
+
+  @override
+  Future<Map<String, int>> getCategories() async {
+    // TODO: Optimize this method as it iterates through all books.
+    const cacheKey = 'book_categories';
+    try {
+      final cacheResult = await _cacheService.fetch<Map<String, dynamic>>(
+        key: cacheKey,
+        boxName: CacheConstants.categoriesBoxName, // Using a separate box for categories
+        networkFetch: () async {
+          _log.info('Fetching categories from Firestore');
+          final querySnapshot = await _firestore.collection('books').get();
+          final Map<String, int> categoryCounts = {};
+          for (var doc in querySnapshot.docs) {
+            final data = doc.data();
+            final currentTags = data['tags'];
+            if (currentTags is List) {
+              for (var tag in currentTags) {
+                final tagStr = tag.toString();
+                categoryCounts[tagStr] = (categoryCounts[tagStr] ?? 0) + 1;
+              }
+            }
+          }
+          return categoryCounts;
+        },
+        ttl: const Duration(hours: 24),
+      );
+
+      return cacheResult?.data?.map((key, value) => MapEntry(key, value as int)) ?? {};
+    } catch (e) {
+      _log.severe('Error getting categories: $e');
+      return {};
+    }
+  }
+
+  @override
+  Future<BookStructure> getBookStructure(String bookId) async {
+    final String cacheKey = '${CacheConstants.bookStructureKeyPrefix}$bookId';
+    _log.info('Attempting to fetch book structure for $bookId, cacheKey: $cacheKey');
+
+    try {
+      final cacheResult = await _cacheService.fetch<BookStructure>(
+        key: cacheKey,
+        boxName: CacheConstants.bookStructuresBoxName,
+        networkFetch: () async {
+          _log.info('Network fetch for book structure $bookId');
+          List<Volume> volumes = [];
+          List<Chapter> standaloneChapters = [];
+
+          // Try fetching volumes first
+          final volumesSnapshot = await _firestore
+              .collection('books')
+              .doc(bookId)
+              .collection('volumes')
+              .orderBy('sequence')
+              .get();
+
+          if (volumesSnapshot.docs.isNotEmpty) {
+            _log.info('Found ${volumesSnapshot.docs.length} volumes for book $bookId.');
+            for (var volDoc in volumesSnapshot.docs) {
+              List<Chapter> chaptersInVolume = [];
+              final chaptersSnapshot = await volDoc.reference
+                  .collection('chapters')
+                  .orderBy('sequence')
+                  .get();
+              
+              _log.finer('Found ${chaptersSnapshot.docs.length} chapters for volume ${volDoc.id}.');
+              for (var chapDoc in chaptersSnapshot.docs) {
+                List<Heading> headingsInChapter = [];
+                final headingsSnapshot = await chapDoc.reference
+                    .collection('headings')
+                    .orderBy('sequence')
+                    .get();
+                
+                _log.finest('Found ${headingsSnapshot.docs.length} headings for chapter ${chapDoc.id}.');
+                for (var headDoc in headingsSnapshot.docs) {
+                  headingsInChapter.add(Heading.fromMap(headDoc.id, headDoc.data()));
+                }
+                chaptersInVolume.add(Chapter.fromMap(chapDoc.id, chapDoc.data()).copyWith(headings: headingsInChapter));
+              }
+              volumes.add(Volume.fromMap(volDoc.id, volDoc.data()).copyWith(chapters: chaptersInVolume));
+            }
+          } else {
+            _log.info('No volumes found for book $bookId. Fetching standalone chapters.');
+            // If no volumes, fetch standalone chapters
+            final chaptersSnapshot = await _firestore
+                .collection('books')
+                .doc(bookId)
+                .collection('chapters')
+                .orderBy('sequence')
+                .get();
+            
+            _log.info('Found ${chaptersSnapshot.docs.length} standalone chapters for book $bookId.');
+            for (var chapDoc in chaptersSnapshot.docs) {
+              List<Heading> headingsInChapter = [];
+              final headingsSnapshot = await chapDoc.reference
+                  .collection('headings')
+                  .orderBy('sequence')
+                  .get();
+
+              _log.finer('Found ${headingsSnapshot.docs.length} headings for standalone chapter ${chapDoc.id}.');
+              for (var headDoc in headingsSnapshot.docs) {
+                headingsInChapter.add(Heading.fromMap(headDoc.id, headDoc.data()));
+              }
+              standaloneChapters.add(Chapter.fromMap(chapDoc.id, chapDoc.data()).copyWith(headings: headingsInChapter));
+            }
+          }
+          return BookStructure(volumes: volumes, standaloneChapters: standaloneChapters);
+        },
+        ttl: CacheConstants.bookCacheTtl, // e.g., 30 days
+        // Assuming BookStructure and its constituents (Volume, Chapter, Heading)
+        // are Hive-adaptable or _cacheService.fetch can handle complex objects.
+        // If not, a deserialize function would be needed here if networkFetch returned Map.
+      );
+
+      if (cacheResult?.data != null) {
+        _log.info('Successfully fetched book structure for $bookId from ${cacheResult!.source}');
+        return cacheResult.data!;
+      } else {
+        _log.warning('Book structure for $bookId is null after fetch attempt.');
+        // This case should ideally be handled by _cacheService.fetch throwing an error
+        // if networkFetch fails and no cache is available.
+        throw Exception('Failed to load book structure for $bookId and no data was returned.');
+      }
+    } catch (e, stackTrace) {
+      _log.severe('Error getting book structure for $bookId: $e', stackTrace);
+      // Return an empty structure or rethrow, depending on desired error handling.
+      // For now, rethrowing to make it clear to the provider that an error occurred.
+      rethrow;
+    }
+  }
 }
 
 // Define the provider for ReadingRepository
-final readingRepositoryProvider = FutureProvider<ReadingRepository>((ref) async {
-  final geminiService = ref.watch(geminiServiceProvider);
-  // Await the CacheService from its FutureProvider
-  final cacheService = await ref.watch(cacheServiceProvider.future);
+// This will be replaced by consolidatedBookRepoProvider in books_providers.dart
+// final readingRepositoryProvider = FutureProvider<ReadingRepository>((ref) async {
+//   final geminiService = ref.watch(geminiServiceProvider);
+//   // Await the CacheService from its FutureProvider
+//   final cacheService = await ref.watch(cacheServiceProvider.future);
   
-  return ReadingRepositoryImpl(
-    geminiService: geminiService,
-    cacheService: cacheService,
-  );
-});
+//   return ReadingRepositoryImpl(
+//     geminiService: geminiService,
+//     cacheService: cacheService,
+//   );
+// });

@@ -89,7 +89,9 @@ class _ReadingScreenState extends ConsumerState<ReadingScreen> {
 
     // Process query parameters for chapter and heading navigation
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      _processNavigationParameters();
+      if (mounted) { // Ensure widget is still mounted before processing
+        _processNavigationParameters();
+      }
     });
   }
   
@@ -103,9 +105,12 @@ class _ReadingScreenState extends ConsumerState<ReadingScreen> {
   
   // Process navigation parameters from URL query parameters
   void _processNavigationParameters() {
+    if (!mounted) return; // Check if widget is still in the tree
+
     try {
-      final routerState = GoRouter.of(context).routeInformationProvider.value;
-      final uri = Uri.parse(routerState.uri.toString());
+      // Use GoRouterState.of(context) for safer access to route information
+      final routerState = GoRouterState.of(context);
+      final uri = routerState.uri; // GoRouterState.uri is already a Uri object
       
       // Extract query parameters
       _chapterId = uri.queryParameters['chapterId'];
@@ -118,6 +123,7 @@ class _ReadingScreenState extends ConsumerState<ReadingScreen> {
         ref.listenManual(
           readingNotifierProvider(widget.bookId), 
           (previous, current) {
+            if (!mounted) return; // Check mounted status in listener callback
             // Only process once content is loaded successfully
             if (current.status == ReadingStatus.displayingText) {
               _navigateToSpecificContent(_chapterId!, _headingId);
@@ -252,7 +258,7 @@ class _ReadingScreenState extends ConsumerState<ReadingScreen> {
       }
       
       // Next check against any generated chapters if available
-      if (state.aiExtractedChapters != null) {
+      if (state.aiExtractedChapters != null && state.aiExtractedChapters!.isNotEmpty) { // Added null check
         for (int i = 0; i < state.aiExtractedChapters!.length; i++) {
           final chapter = state.aiExtractedChapters![i];
           if (chapter['id']?.toString() == chapterId) {
@@ -265,10 +271,12 @@ class _ReadingScreenState extends ConsumerState<ReadingScreen> {
       if (state.headings != null && state.headings!.isNotEmpty) {
         // Create a mapping of chapter IDs to their index position
         Map<String, int> chapterIndexMap = {};
-        for (var heading in state.headings!) {
-          String key = heading.chapterId?.toString() ?? heading.volumeId?.toString() ?? "default_chapter";
-          if (!chapterIndexMap.containsKey(key)) {
-            chapterIndexMap[key] = chapterIndexMap.length;
+        for (var headingData in state.headings!) { // Changed var name for clarity
+          if (headingData is Heading) { // Ensure it's a Heading object
+            String key = headingData.chapterId?.toString() ?? headingData.volumeId?.toString() ?? "default_chapter";
+            if (!chapterIndexMap.containsKey(key)) {
+              chapterIndexMap[key] = chapterIndexMap.length;
+            }
           }
         }
         
@@ -278,10 +286,12 @@ class _ReadingScreenState extends ConsumerState<ReadingScreen> {
         }
         
         // Also check headings' IDs directly
-        for (var heading in state.headings!) {
-          if (heading.firestoreDocId == chapterId) {
-            String key = heading.chapterId?.toString() ?? heading.volumeId?.toString() ?? "default_chapter";
-            return chapterIndexMap[key];
+        for (var headingData in state.headings!) {
+           if (headingData is Heading) {
+            if (headingData.firestoreDocId == chapterId) {
+              String key = headingData.chapterId?.toString() ?? headingData.volumeId?.toString() ?? "default_chapter";
+              return chapterIndexMap[key]; // chapterIndexMap[key] could be null if key not found
+            }
           }
         }
       }
@@ -289,8 +299,8 @@ class _ReadingScreenState extends ConsumerState<ReadingScreen> {
       // If we get here, we couldn't find the chapter
       _log.warning('Could not find chapter with ID: $chapterId');
       return null;
-    } catch (e) {
-      _log.severe('Error finding logical chapter index: $e');
+    } catch (e, stackTrace) { // Added stackTrace
+      _log.severe('Error finding logical chapter index: $e', e, stackTrace);
       return null;
     }
   }
@@ -410,12 +420,6 @@ class _ReadingScreenState extends ConsumerState<ReadingScreen> {
 
   Widget _buildContentSection(String title, String content, String language) {
     final theme = Theme.of(context);
-    // final sectionId = 'section-${title.hashCode}'; // Not used for bookmarking anymore
-    
-    // Determine if this section (identified by title for this specific old method) is bookmarked
-    // This method _buildContentSection is older and used by _buildTextContent. 
-    // The new bookmarking logic is primarily in _buildNewContentSection.
-    // For this older path, we'll check bookmarks based on headingTitle matching `title`.
     final readingState = ref.watch(readingNotifierProvider(widget.bookId));
     final isThisSectionBookmarked = readingState.bookmarks.any((b) => b.headingTitle == title);
 
@@ -432,36 +436,24 @@ class _ReadingScreenState extends ConsumerState<ReadingScreen> {
                 child: Text(
                   title,
                   style: theme.textTheme.titleMedium?.copyWith(
-                    color: theme.colorScheme.onSurface,
+                    color: theme.colorScheme.onSurface ?? Colors.black, // Fallback color
                     fontWeight: FontWeight.bold,
                   ),
                 ),
               ),
               IconButton(
                 icon: Icon(
-                  isThisSectionBookmarked // Use the new flag derived from state.bookmarks
+                  isThisSectionBookmarked
                     ? Icons.bookmark 
                     : Icons.bookmark_border,
                   color: theme.colorScheme.primary,
                   size: 20,
                 ),
                 onPressed: () {
-                  // This part needs to be connected to the new notifier logic.
-                  // We need a `Heading` object or at least a headingId for this section.
-                  // This old _buildContentSection is problematic for the new bookmark system.
-                  // For now, log and perhaps show a message.
                   _log.info("Bookmark toggle attempt in _buildContentSection for title '$title'. Needs refactor to use Heading object.");
                   ScaffoldMessenger.of(context).showSnackBar(
                     const SnackBar(content: Text('Bookmarking from this view needs update.')),
                   );
-                  // To properly implement, we would need to find the Heading that corresponds to `title`
-                  // and its chapter context, then call:
-                  // final headingToBookmark = state.headings?.firstWhere((h) => h.title == title, orElse: () => null);
-                  // if (headingToBookmark != null && headingToBookmark.firestoreDocId != null) {
-                  //   String chapterId = headingToBookmark.chapterId?.toString() ?? headingToBookmark.volumeId?.toString() ?? "default_chapter";
-                  //   String chapterTitle = ... // Need to get this title based on chapterId
-                  //   ref.read(readingNotifierProvider(widget.bookId).notifier).toggleBookmark(headingToBookmark, chapterId, chapterTitle);
-                  // }
                 },
               ),
             ],
@@ -469,8 +461,8 @@ class _ReadingScreenState extends ConsumerState<ReadingScreen> {
           const SizedBox(height: 16),
           Text(
             content,
-            style: theme.textTheme.bodyLarge?.copyWith(
-              color: theme.colorScheme.onSurface,
+            style: (theme.textTheme.bodyLarge ?? const TextStyle()).copyWith( // Ensure bodyLarge is not null
+              color: theme.colorScheme.onSurface ?? Colors.black, // Fallback color
               fontSize: _fontSize,
               height: _lineSpacing,
               fontFamily: _getFontFamily(language),
@@ -478,47 +470,50 @@ class _ReadingScreenState extends ConsumerState<ReadingScreen> {
             textAlign: _getTextAlignment(language),
           ),
           const SizedBox(height: 16),
-          Divider(color: theme.colorScheme.onSurface.withOpacity(0.1)),
+          Divider(color: (theme.colorScheme.onSurface ?? Colors.black).withOpacity(0.1)), // Fallback color
         ],
       ),
     );
   }
   
-  String _getFontFamily(String language) {
+  String _getFontFamily(String? language) { // Made language nullable
     // Use the extension to get the preferred font family
-    return language.preferredFontFamily;
+    return language?.preferredFontFamily ?? 'DefaultFont'; // Provide a default font
   }
 
-  TextAlign _getTextAlignment(String language) {
+  TextAlign _getTextAlignment(String? language) { // Made language nullable
     // Use the extension to determine text alignment based on RTL
-    return language.isRTL ? TextAlign.right : TextAlign.justify;
+    return language?.isRTL ?? false ? TextAlign.right : TextAlign.justify; // Default to LTR
   }
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final readingState = ref.watch(readingNotifierProvider(widget.bookId));
-    final size = MediaQuery.of(context).size;
-    final colors = _getThemeColors();
+    final size = MediaQuery.of(context).size; // Potentially unused, consider removing if not needed
+    final colors = _getThemeColors(); // This uses settingsProvider, which is fine
+
+    // Determine current language safely
+    final currentLanguage = readingState.currentLanguage ?? 'en'; // Default to 'en'
 
     return Theme(
       data: ThemeData(
         colorScheme: colors,
-        scaffoldBackgroundColor: colors.surface, // Use theme background
-        textTheme: theme.textTheme.copyWith( // Apply custom font styles
-          bodyLarge: TextStyle(fontFamily: _getFontFamily(readingState.currentLanguage ?? 'en'), fontSize: _fontSize, height: _lineSpacing, color: colors.onSurface),
-          titleMedium: TextStyle(fontFamily: _getFontFamily(readingState.currentLanguage ?? 'en'), fontWeight: FontWeight.bold, color: colors.onSurface),
-          headlineSmall: TextStyle(fontFamily: _getFontFamily(readingState.currentLanguage ?? 'en'), fontWeight: FontWeight.bold, color: colors.onSurface),
+        scaffoldBackgroundColor: colors.surface, 
+        textTheme: theme.textTheme.copyWith( 
+          bodyLarge: TextStyle(fontFamily: _getFontFamily(currentLanguage), fontSize: _fontSize, height: _lineSpacing, color: colors.onSurface),
+          titleMedium: TextStyle(fontFamily: _getFontFamily(currentLanguage), fontWeight: FontWeight.bold, color: colors.onSurface),
+          headlineSmall: TextStyle(fontFamily: _getFontFamily(currentLanguage), fontWeight: FontWeight.bold, color: colors.onSurface),
         ),
         appBarTheme: AppBarTheme(
-          backgroundColor: colors.surface, // Use surface for AppBar background
-          elevation: 0, // Flat AppBar
+          backgroundColor: colors.surface, 
+          elevation: 0, 
           iconTheme: IconThemeData(color: colors.onSurface),
           titleTextStyle: TextStyle(
             color: colors.onSurface,
             fontSize: 18,
             fontWeight: FontWeight.w600,
-            fontFamily: _getFontFamily(readingState.currentLanguage ?? 'en'),
+            fontFamily: _getFontFamily(currentLanguage),
           ),
         )
       ),
@@ -528,9 +523,9 @@ class _ReadingScreenState extends ConsumerState<ReadingScreen> {
             leading: IconButton(
                   icon: Icon(Icons.arrow_back_ios_new, color: colors.onSurface),
               onPressed: () {
-                    if (context.canPop()) {
+                    if (mounted && context.canPop()) { // Added mounted check
                       context.pop();
-                    } else {
+                    } else if (mounted) { // Added mounted check
                       context.goNamed(RouteNames.bookDetail, pathParameters: {'bookId': widget.bookId});
                     }
               },
@@ -1077,13 +1072,34 @@ class _ReadingScreenState extends ConsumerState<ReadingScreen> {
           const SizedBox(height: 10.0),
           Padding(
             padding: const EdgeInsets.only(left: 8.0),
-            child: Text(
-              textContent,
-              style: textStyle.copyWith(
-                fontFamily: _getFontFamily(language),
-                color: colors.onSurface.withOpacity(0.85), // Slightly less prominent than title
-              ),
-              textAlign: _getTextAlignment(language),
+            child: Column( // New Column for paragraphs
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: (heading?.content?.isNotEmpty ?? false)
+                  ? heading!.content!.map((paragraph) => Padding(
+                      padding: const EdgeInsets.only(bottom: 8.0), // Space between paragraphs
+                      child: Text(
+                        paragraph,
+                        style: textStyle.copyWith( 
+                          fontFamily: _getFontFamily(language), 
+                          color: colors.onSurface.withOpacity(0.85),
+                        ),
+                        textAlign: _getTextAlignment(language),
+                      ),
+                    )).toList()
+                  : [
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 8.0),
+                        child: Text(
+                          "No content for this section.",
+                          style: textStyle.copyWith(
+                            fontFamily: _getFontFamily(language),
+                            color: colors.onSurface.withOpacity(0.6), // Dimmer for fallback
+                            fontStyle: FontStyle.italic,
+                          ),
+                          textAlign: _getTextAlignment(language),
+                        ),
+                      ),
+                    ],
             ),
           ),
           Divider(color: colors.outline.withOpacity(0.3), height: 32, thickness: 0.5),
