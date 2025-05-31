@@ -1,0 +1,30 @@
+{
+  "ur": [
+    "videosScreenTitle",
+    "videosScreenPlaylistsAvailable",
+    "videosScreenLastUpdated",
+    "videosScreenJustNow",
+    "videosScreenMinutesAgo",
+    "videosScreenHoursAgo",
+    "videosScreenDaysAgo",
+    "videosScreenRefreshTooltip",
+    "videosScreenScrollToTopTooltip",
+    "videosScreenLoadingPlaylists",
+    "videosScreenErrorTitle",
+    "videosScreenErrorMessage",
+    "videosScreenRetryButton",
+    "videosScreenGoHomeButton",
+    "videosScreenNoPlaylistsTitle",
+    "videosScreenNoPlaylistsMessage",
+    "videosScreenOutdatedDataWarning",
+    "videosScreenNetworkError",
+    "videosScreenNoInternetConnection",
+    "accessibilityVideoPlaylist",
+    "accessibilityRefreshButton",
+    "accessibilityScrollToTop",
+    "accessibilityNetworkStatus",
+    "accessibilityErrorState",
+    "accessibilityLoadingState",
+    "accessibilityEmptyState"
+  ]
+}
