@@ -8,13 +8,23 @@ import 'package:flutter_staggered_animations/flutter_staggered_animations.dart';
 import 'package:modudi/features/favorites/providers/favorites_provider.dart';
 import 'package:modudi/features/books/data/models/book_models.dart';
 import 'package:modudi/features/library/presentation/widgets/book_grid_item.dart'; // Using the enhanced BookGridItem
+import 'package:modudi/features/library/presentation/widgets/book_list_item.dart'; // Using the enhanced BookListItem
 import 'package:go_router/go_router.dart';
 import 'package:modudi/core/themes/app_color.dart';
 
-class FavoritesScreen extends ConsumerWidget {
-  FavoritesScreen({super.key});
-  
+// Enum for view modes
+enum ViewMode { grid, list }
+
+class FavoritesScreen extends ConsumerStatefulWidget {
+  const FavoritesScreen({super.key});
+
+  @override
+  ConsumerState<FavoritesScreen> createState() => _FavoritesScreenState();
+}
+
+class _FavoritesScreenState extends ConsumerState<FavoritesScreen> {
   final _log = Logger('FavoritesScreen');
+  ViewMode _currentViewMode = ViewMode.grid; // Default to grid view
   
   // Helper method to scale font sizes based on settings
   double _scaleFontSize(double baseSize, WidgetRef ref) {
@@ -24,20 +34,20 @@ class FavoritesScreen extends ConsumerWidget {
   }
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  Widget build(BuildContext context) {
     // Watch settings provider to react to font size changes
     ref.watch(settingsProvider); // Watch to rebuild on changes
     final favorites = ref.watch(favoritesProvider);
     final theme = Theme.of(context);
-    final isDark = theme.brightness == Brightness.dark;
-    final isSepia = theme.primaryColor == AppColor.primarySepia;
 
     return Scaffold(
       backgroundColor: theme.scaffoldBackgroundColor,
       appBar: _buildAppBar(context, theme, ref),
       body: favorites.isEmpty
           ? _buildEmptyState(context, ref)
-          : _buildFavoritesGrid(context, favorites, ref),
+          : _currentViewMode == ViewMode.grid
+              ? _buildFavoritesGrid(context, favorites, ref)
+              : _buildFavoritesList(context, favorites, ref),
     );
   }
   
@@ -82,7 +92,32 @@ class FavoritesScreen extends ConsumerWidget {
           color: titleColor,
         ),
       ),
-      // No actions needed
+      actions: [
+        // View mode toggle button
+        Container(
+          margin: const EdgeInsets.only(right: 8),
+          child: IconButton(
+            icon: Icon(
+              _currentViewMode == ViewMode.grid 
+                  ? Icons.view_list_rounded 
+                  : Icons.grid_view_rounded,
+              color: titleColor,
+            ),
+            onPressed: () {
+              setState(() {
+                _currentViewMode = _currentViewMode == ViewMode.grid 
+                    ? ViewMode.list 
+                    : ViewMode.grid;
+              });
+              // Add haptic feedback
+              HapticFeedback.lightImpact();
+            },
+            tooltip: _currentViewMode == ViewMode.grid 
+                ? 'Switch to List View' 
+                : 'Switch to Grid View',
+          ),
+        ),
+      ],
       bottom: PreferredSize(
         preferredSize: const Size.fromHeight(1.0),
         child: Container(
@@ -95,9 +130,6 @@ class FavoritesScreen extends ConsumerWidget {
   
   // Build the favorites grid with animations and long-press functionality
   Widget _buildFavoritesGrid(BuildContext context, List<Book> favorites, WidgetRef ref) {
-    final theme = Theme.of(context);
-    final isDark = theme.brightness == Brightness.dark;
-    final isSepia = theme.primaryColor == AppColor.primarySepia;
     
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16.0),
@@ -145,10 +177,51 @@ class FavoritesScreen extends ConsumerWidget {
     );
   }
   
+  // Build the favorites list with animations and long-press functionality
+  Widget _buildFavoritesList(BuildContext context, List<Book> favorites, WidgetRef ref) {
+    
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16.0),
+      child: AnimationLimiter(
+        child: ListView.builder(
+          padding: const EdgeInsets.only(top: 20.0, bottom: 28.0),
+          physics: const BouncingScrollPhysics(),
+          itemCount: favorites.length,
+          itemBuilder: (context, index) {
+            final Book book = favorites[index];
+            
+            return AnimationConfiguration.staggeredList(
+              position: index,
+              duration: const Duration(milliseconds: 375),
+              child: SlideAnimation(
+                verticalOffset: 50.0,
+                child: FadeInAnimation(
+                  child: Container(
+                    margin: const EdgeInsets.only(bottom: 12.0),
+                    child: GestureDetector(
+                      onLongPress: () => _showRemoveDialog(context, book, ref),
+                      child: BookListItem(
+                        book: book,
+                        onTap: () {
+                          _log.info('Opening book detail: ${book.firestoreDocId}');
+                          // Navigate to book detail page
+                          context.go('/books/${book.firestoreDocId}');
+                        },
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            );
+          },
+        ),
+      ),
+    );
+  }
+  
   // Show dialog to confirm removing a book from favorites
   void _showRemoveDialog(BuildContext context, Book book, WidgetRef ref) {
     final theme = Theme.of(context);
-    final isDark = theme.brightness == Brightness.dark;
     final isSepia = theme.primaryColor == AppColor.primarySepia;
     
     final primaryColor = isSepia ? AppColor.primarySepia : theme.colorScheme.primary;

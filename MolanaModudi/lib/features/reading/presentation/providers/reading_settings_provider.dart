@@ -50,17 +50,9 @@ enum ReadingFontSize {
 
 // Enum for reading content font family choices
 enum ReadingFontFamily {
-  serif('Serif'),
-  sansSerif('SansSerif'),
-  mono('Mono'),
-  roboto('Roboto'),
-  openSans('Open Sans'),
-  lato('Lato'),
   notoNastaliq('NotoNastaliqUrdu'),
   jameelNoori('Jameel Noori Nastaleeq Regular'),
-  notoNaskh('NotoNaskhArabic'),
-  amiriQuran('Amiri Quran'),
-  scheherazade('Scheherazade New');
+  amiriQuran('Amiri Quran');
   
   final String displayName;
   const ReadingFontFamily(this.displayName);
@@ -68,57 +60,52 @@ enum ReadingFontFamily {
   // Helper methods for font family conversion
   String get fontFamily {
     switch (this) {
-      case ReadingFontFamily.serif:
-        return 'serif';
-      case ReadingFontFamily.sansSerif:
-        return 'sans-serif';
-      case ReadingFontFamily.mono:
-        return 'monospace';
-      case ReadingFontFamily.roboto:
-        return 'Roboto';
-      case ReadingFontFamily.openSans:
-        return 'OpenSans';
-      case ReadingFontFamily.lato:
-        return 'Lato';
       case ReadingFontFamily.notoNastaliq:
         return 'NotoNastaliqUrdu';
       case ReadingFontFamily.jameelNoori:
         return 'JameelNooriNastaleeqRegular';
-      case ReadingFontFamily.notoNaskh:
-        return 'NotoNaskhArabic';
       case ReadingFontFamily.amiriQuran:
         return 'AmiriQuran';
-      case ReadingFontFamily.scheherazade:
-        return 'ScheherazadeNew';
     }
   }
   
   bool get isCustomFont {
     return this == ReadingFontFamily.notoNastaliq || 
            this == ReadingFontFamily.jameelNoori || 
-           this == ReadingFontFamily.notoNaskh ||
-           this == ReadingFontFamily.amiriQuran ||
-           this == ReadingFontFamily.scheherazade;
+           this == ReadingFontFamily.amiriQuran;
   }
 
   // Get font families suitable for Arabic/Urdu content
   static List<ReadingFontFamily> get arabicUrduFonts => [
     ReadingFontFamily.jameelNoori,
     ReadingFontFamily.notoNastaliq,
-    ReadingFontFamily.notoNaskh,
     ReadingFontFamily.amiriQuran,
-    ReadingFontFamily.scheherazade,
   ];
 
-  // Get font families suitable for English content
-  static List<ReadingFontFamily> get englishFonts => [
-    ReadingFontFamily.roboto,
-    ReadingFontFamily.openSans,
-    ReadingFontFamily.lato,
-    ReadingFontFamily.serif,
-    ReadingFontFamily.sansSerif,
-    ReadingFontFamily.mono,
-  ];
+  // Get font families suitable for English content (kept for compatibility but empty)
+  static List<ReadingFontFamily> get englishFonts => [];
+}
+
+// Reading-specific theme mode (separate from global app theme)
+enum ReadingThemeMode {
+  light,
+  dark,
+  sepia,
+  system;
+  
+  // Convert to standard ThemeMode for Flutter
+  ThemeMode toThemeMode() {
+    switch (this) {
+      case ReadingThemeMode.light:
+        return ThemeMode.light;
+      case ReadingThemeMode.dark:
+        return ThemeMode.dark;
+      case ReadingThemeMode.system:
+        return ThemeMode.system;
+      case ReadingThemeMode.sepia:
+        return ThemeMode.light; // Sepia is a variant of light theme
+    }
+  }
 }
 
 // State class for reading settings
@@ -131,6 +118,9 @@ class ReadingSettingsState {
   final double wordSpacing;
   final FontWeight fontWeight;
   final double paragraphSpacing;
+  final bool pageFlipAnimationEnabled;
+  final bool focusModeEnabled;
+  final ReadingThemeMode themeMode; // Add reading-specific theme
 
   const ReadingSettingsState({
     this.fontSize = ReadingFontSize.size16,
@@ -140,7 +130,15 @@ class ReadingSettingsState {
     this.wordSpacing = 0.0,
     this.fontWeight = FontWeight.normal,
     this.paragraphSpacing = 16.0,
+    this.pageFlipAnimationEnabled = true,
+    this.focusModeEnabled = false,
+    this.themeMode = ReadingThemeMode.system, // Default to system
   });
+
+  // Helper properties for reading theme
+  bool get isSepia => themeMode == ReadingThemeMode.sepia;
+  bool get isDark => themeMode == ReadingThemeMode.dark;
+  bool get isLight => themeMode == ReadingThemeMode.light;
 
   ReadingSettingsState copyWith({
     ReadingFontSize? fontSize,
@@ -150,6 +148,9 @@ class ReadingSettingsState {
     double? wordSpacing,
     FontWeight? fontWeight,
     double? paragraphSpacing,
+    bool? pageFlipAnimationEnabled,
+    bool? focusModeEnabled,
+    ReadingThemeMode? themeMode,
   }) {
     return ReadingSettingsState(
       fontSize: fontSize ?? this.fontSize,
@@ -159,6 +160,9 @@ class ReadingSettingsState {
       wordSpacing: wordSpacing ?? this.wordSpacing,
       fontWeight: fontWeight ?? this.fontWeight,
       paragraphSpacing: paragraphSpacing ?? this.paragraphSpacing,
+      pageFlipAnimationEnabled: pageFlipAnimationEnabled ?? this.pageFlipAnimationEnabled,
+      focusModeEnabled: focusModeEnabled ?? this.focusModeEnabled,
+      themeMode: themeMode ?? this.themeMode,
     );
   }
 
@@ -173,7 +177,10 @@ class ReadingSettingsState {
       other.letterSpacing == letterSpacing &&
       other.wordSpacing == wordSpacing &&
       other.fontWeight == fontWeight &&
-      other.paragraphSpacing == paragraphSpacing;
+      other.paragraphSpacing == paragraphSpacing &&
+      other.pageFlipAnimationEnabled == pageFlipAnimationEnabled &&
+      other.focusModeEnabled == focusModeEnabled &&
+      other.themeMode == themeMode;
   }
 
   @override
@@ -186,6 +193,9 @@ class ReadingSettingsState {
       wordSpacing,
       fontWeight,
       paragraphSpacing,
+      pageFlipAnimationEnabled,
+      focusModeEnabled,
+      themeMode,
     );
   }
 }
@@ -206,6 +216,9 @@ class ReadingSettingsNotifier extends StateNotifier<ReadingSettingsState> {
   static const String _readingWordSpacingKey = 'reading_wordSpacing';
   static const String _readingFontWeightKey = 'reading_fontWeight';
   static const String _readingParagraphSpacingKey = 'reading_paragraphSpacing';
+  static const String _pageFlipAnimationEnabledKey = 'reading_pageFlipAnimationEnabled';
+  static const String _focusModeEnabledKey = 'reading_focusModeEnabled';
+  static const String _readingThemeModeKey = 'reading_themeMode'; // Add reading theme key
 
   Future<void> _loadSettings() async {
     try {
@@ -218,15 +231,21 @@ class ReadingSettingsNotifier extends StateNotifier<ReadingSettingsState> {
       final wordSpacingValue = prefs.getDouble(_readingWordSpacingKey) ?? 0.0;
       final fontWeightIndex = prefs.getInt(_readingFontWeightKey) ?? FontWeight.normal.index;
       final paragraphSpacingValue = prefs.getDouble(_readingParagraphSpacingKey) ?? 16.0;
+      final pageFlipAnimationEnabled = prefs.getBool(_pageFlipAnimationEnabledKey) ?? true;
+      final focusModeEnabled = prefs.getBool(_focusModeEnabledKey) ?? false;
+      final themeModeIndex = prefs.getInt(_readingThemeModeKey) ?? ReadingThemeMode.system.index;
       
       state = state.copyWith(
         fontSize: ReadingFontSize.values[fontSizeIndex.clamp(0, ReadingFontSize.values.length - 1)],
-        lineSpacing: lineSpacingValue.clamp(1.0, 3.0),
+        lineSpacing: lineSpacingValue.clamp(1.0, 2.5),
         fontFamily: ReadingFontFamily.values[fontFamilyIndex.clamp(0, ReadingFontFamily.values.length - 1)],
-        letterSpacing: letterSpacingValue.clamp(-2.0, 5.0),
-        wordSpacing: wordSpacingValue.clamp(0.0, 10.0),
+        letterSpacing: letterSpacingValue.clamp(-1.0, 2.0),
+        wordSpacing: wordSpacingValue.clamp(-1.0, 2.0),
         fontWeight: FontWeight.values[fontWeightIndex.clamp(0, FontWeight.values.length - 1)],
         paragraphSpacing: paragraphSpacingValue.clamp(8.0, 32.0),
+        pageFlipAnimationEnabled: pageFlipAnimationEnabled,
+        focusModeEnabled: focusModeEnabled,
+        themeMode: ReadingThemeMode.values[themeModeIndex.clamp(0, ReadingThemeMode.values.length - 1)],
       );
       
       _log.info('Reading settings loaded successfully');
@@ -336,6 +355,52 @@ class ReadingSettingsNotifier extends StateNotifier<ReadingSettingsState> {
     }
   }
 
+  Future<void> setPageFlipAnimationEnabled(bool enabled) async {
+    _log.info('Setting page flip animation to: $enabled');
+    if (state.pageFlipAnimationEnabled == enabled) return;
+    
+    try {
+      state = state.copyWith(pageFlipAnimationEnabled: enabled);
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool(_pageFlipAnimationEnabledKey, enabled);
+      _log.info('Page flip animation setting saved successfully');
+    } catch (e) {
+      _log.severe('Error setting page flip animation: $e');
+    }
+  }
+
+  Future<void> setFocusModeEnabled(bool enabled) async {
+    _log.info('Setting focus mode to: $enabled');
+    if (state.focusModeEnabled == enabled) return;
+    
+    try {
+      state = state.copyWith(focusModeEnabled: enabled);
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool(_focusModeEnabledKey, enabled);
+      _log.info('Focus mode setting saved successfully');
+    } catch (e) {
+      _log.severe('Error setting focus mode: $e');
+    }
+  }
+
+  // Add method to set reading theme mode
+  Future<void> setReadingThemeMode(ReadingThemeMode themeMode) async {
+    _log.info('Setting reading theme mode to: $themeMode');
+    if (state.themeMode == themeMode) {
+      _log.info('Reading theme mode is already set to $themeMode, skipping update.');
+      return;
+    }
+
+    try {
+      state = state.copyWith(themeMode: themeMode);
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setInt(_readingThemeModeKey, themeMode.index);
+      _log.info('Reading theme mode saved successfully');
+    } catch (e) {
+      _log.severe('Error setting reading theme mode: $e');
+    }
+  }
+
   // Reset to default values
   Future<void> resetToDefaults() async {
     _log.info('Resetting reading settings to defaults');
@@ -351,6 +416,9 @@ class ReadingSettingsNotifier extends StateNotifier<ReadingSettingsState> {
       await prefs.setDouble(_readingWordSpacingKey, defaultState.wordSpacing);
       await prefs.setInt(_readingFontWeightKey, defaultState.fontWeight.index);
       await prefs.setDouble(_readingParagraphSpacingKey, defaultState.paragraphSpacing);
+      await prefs.setBool(_pageFlipAnimationEnabledKey, defaultState.pageFlipAnimationEnabled);
+      await prefs.setBool(_focusModeEnabledKey, defaultState.focusModeEnabled);
+      await prefs.setInt(_readingThemeModeKey, defaultState.themeMode.index);
       
       _log.info('Reading settings reset successfully');
     } catch (e) {

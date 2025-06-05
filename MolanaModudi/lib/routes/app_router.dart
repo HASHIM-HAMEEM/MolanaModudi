@@ -15,11 +15,13 @@ import '../features/videos/presentation/screens/videos_screen.dart'; // Import V
 import '../features/videos/presentation/screens/playlist_detail_screen.dart'; // Import PlaylistDetailScreen
 import '../features/videos/presentation/screens/video_player_screen.dart'; // Import VideoPlayerScreen
 import '../features/videos/domain/entities/video_entity.dart'; // Import VideoEntity
+import '../features/articles/presentation/screens/article_detail_screen.dart'; // Import ArticleDetailScreen
 // Import FirebaseBookDetailScreen
 import '../features/biography/presentation/screens/biography_screen.dart'; // Import BiographyScreen
 import '../features/search/presentation/screens/search_screen.dart'; // Import SearchScreen
 import '../features/search/presentation/screens/unified_search_screen.dart'; // Import UnifiedSearchScreen
 import '../features/library/presentation/screens/category_books_screen.dart'; // Import CategoryBooksScreen
+import '../features/splash/presentation/screens/splash_screen.dart'; // Import SplashScreen
 import 'route_names.dart';
 // import 'package:modudi/features/auth/presentation/screens/auth_gate.dart';
 // import 'package:modudi/features/auth/presentation/screens/login_screen.dart';
@@ -34,7 +36,7 @@ class AppRouter {
   static final _shellNavigatorKey = GlobalKey<NavigatorState>(debugLabel: 'ShellNavigator');
 
   static final GoRouter router = GoRouter(
-    initialLocation: RouteNames.home,
+    initialLocation: RouteNames.splash,
     debugLogDiagnostics: true, 
     navigatorKey: _rootNavigatorKey,
     observers: [
@@ -44,6 +46,21 @@ class AppRouter {
 
 
     routes: <RouteBase>[
+      // Splash Screen Route (Initial Route)
+      GoRoute(
+        path: RouteNames.splash,
+        name: 'splash',
+        parentNavigatorKey: _rootNavigatorKey,
+        builder: (context, state) => const SplashScreen(),
+      ),
+      // Main App Route (After Splash)
+      GoRoute(
+        path: RouteNames.main,
+        name: 'main',
+        parentNavigatorKey: _rootNavigatorKey,
+        redirect: (context, state) => RouteNames.home, // Redirect to home tab
+      ),
+      
       // Application Shell with Bottom Navigation
       ShellRoute(
         navigatorKey: _shellNavigatorKey,
@@ -246,34 +263,32 @@ class AppRouter {
           return CategoryBooksScreen(categoryId: categoryId);
         },
       ),
-      // GoRoute(
-      //   name: RouteNames.authGate,
-      //   path: RouteNames.authGate,
-      //   parentNavigatorKey: _rootNavigatorKey,
-      //   // pageBuilder: (context, state) => const MaterialPage(child: AuthGate()),
-      //   builder: (context, state) => const Text("AuthGate Placeholder"),
-      // ),
-      // GoRoute(
-      //   name: RouteNames.login,
-      //   path: RouteNames.login,
-      //   parentNavigatorKey: _rootNavigatorKey,
-      //   // pageBuilder: (context, state) => const MaterialPage(child: LoginScreen()),
-      //   builder: (context, state) => const Text("Login Placeholder")
-      // ),
-      // GoRoute(
-      //   name: RouteNames.signup,
-      //   path: RouteNames.signup,
-      //   parentNavigatorKey: _rootNavigatorKey,
-      //   // pageBuilder: (context, state) => const MaterialPage(child: SignupScreen()),
-      //   builder: (context, state) => const Text("Signup Placeholder")
-      // ),
-      // GoRoute(
-      //   name: RouteNames.onboarding,
-      //   path: RouteNames.onboarding,
-      //   parentNavigatorKey: _rootNavigatorKey,
-      //   // pageBuilder: (context, state) => const MaterialPage(child: OnboardingScreen()),
-      //   builder: (context, state) => const Text("Onboarding Placeholder")
-      // ),
+      // Articles Routes (Top-Level)
+      GoRoute(
+        name: 'articles',
+        path: '/articles',
+        parentNavigatorKey: _rootNavigatorKey,
+        builder: (context, state) {
+          // Navigate to articles list screen
+          return const Scaffold(
+            body: Center(child: Text('Articles List Coming Soon')),
+          );
+        },
+        routes: <RouteBase>[
+          // Individual article route
+          GoRoute(
+            path: ':articleId', // /articles/:articleId
+            name: 'articleDetail',
+            parentNavigatorKey: _rootNavigatorKey,
+            builder: (context, state) {
+              final articleId = state.pathParameters['articleId']!;
+              // Navigate to article detail screen
+              return ArticleDetailScreen(articleId: articleId);
+            },
+          ),
+        ],
+      ),
+
     ],
     errorBuilder: (context, state) => Scaffold(
       body: Center(child: Text('Route not found: ${state.error}')),

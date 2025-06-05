@@ -6,8 +6,9 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:modudi/core/cache/cache_service.dart';
 
 import 'package:modudi/core/providers/providers.dart';
-import 'package:modudi/features/settings/presentation/providers/settings_provider.dart'; // Added back
+import 'package:modudi/features/settings/presentation/providers/app_settings_provider.dart'; // Use proper app settings provider
 import 'package:modudi/core/themes/app_color.dart';
+import 'package:modudi/core/themes/app_theme.dart'; // Import for AppFontScaling extension
 import 'package:modudi/core/l10n/app_localizations_wrapper.dart';
 
 class ProfileScreen extends ConsumerStatefulWidget {
@@ -26,10 +27,13 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
 
   @override
   Widget build(BuildContext context) {
-    // Watch the provider state
-    final settingsState = ref.watch(settingsProvider);
+    // Watch the app settings provider state
+    final appSettings = ref.watch(appSettingsProvider);
     // Get the notifier to call methods like setThemeMode
-    final settingsNotifier = ref.read(settingsProvider.notifier);
+    final appSettingsNotifier = ref.read(appSettingsProvider.notifier);
+    
+    // Get font scale from app settings
+    final fontScale = appSettings.fontScale;
 
     final theme = Theme.of(context);
     final colors = theme.colorScheme;
@@ -72,9 +76,9 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
           'Profile',
           style: GoogleFonts.playfairDisplay(
             textStyle: Theme.of(context).textTheme.titleLarge?.copyWith(
-            color: textColor,
+              color: textColor,
               fontWeight: FontWeight.w600
-            ), 
+            ).withAppFontScale(fontScale), 
           ),
         ),
       ),
@@ -83,17 +87,17 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
         physics: const BouncingScrollPhysics(),
         children: [
           // Reading preferences section
-          _buildSectionHeader('Reading Preferences', textColor),
+          _buildSectionHeader('Reading Preferences', textColor, fontScale),
           const SizedBox(height: 16),
-          _buildThemeToggle(context, settingsState, settingsNotifier, colors, textColor),
-          const SizedBox(height: 16),
-          _buildFontSizeSelector(context, settingsState, settingsNotifier, colors, textColor),
+          _buildThemeToggle(context, appSettings, appSettingsNotifier, colors, textColor, fontScale),
           const SizedBox(height: 32),
           
           // App settings section
-          _buildSectionHeader('App Settings', textColor),
+          _buildSectionHeader('App Settings', textColor, fontScale),
           const SizedBox(height: 16),
-          _buildLanguageSelector(context, settingsState, settingsNotifier, colors, textColor),
+          _buildLanguageSelector(context, appSettings, appSettingsNotifier, colors, textColor, fontScale),
+          const SizedBox(height: 16),
+          _buildFontSizeSelector(context, appSettings, appSettingsNotifier, colors, textColor, secondaryTextColor),
           const SizedBox(height: 16),
           _buildSettingCard(
             context,
@@ -103,6 +107,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
             colors,
             textColor,
             secondaryTextColor,
+            fontScale,
             () {
               _log.info('Notifications tapped');
               ScaffoldMessenger.of(context).showSnackBar(
@@ -123,6 +128,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
             colors,
             textColor,
             secondaryTextColor,
+            fontScale,
             () {
               _log.info('Cache Management tapped');
               _showCacheManagementDialog(context, ref);
@@ -131,31 +137,31 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
           const SizedBox(height: 32),
           
           // Support & info section
-          _buildSectionHeader('Support & Info', textColor),
+          _buildSectionHeader('Support & Info', textColor, fontScale),
           const SizedBox(height: 16),
-          _buildSupportInfoSection(context, colors, textColor, secondaryTextColor),
+          _buildSupportInfoSection(context, colors, textColor, secondaryTextColor, fontScale),
           const SizedBox(height: 32),
 
           // App info section
-          _buildSectionHeader(AppLocalizations.of(context)!.profileScreenAppInfoTitle, textColor),
+          _buildSectionHeader(AppLocalizations.of(context)!.profileScreenAppInfoTitle, textColor, fontScale),
           const SizedBox(height: 16),
-          _buildAppInfoCard(context, colors, textColor, secondaryTextColor),
+          _buildAppInfoCard(context, colors, textColor, secondaryTextColor, fontScale),
           const SizedBox(height: 32),
         ],
       ),
     );
   }
 
-  Widget _buildSectionHeader(String title, Color textColor) {
+  Widget _buildSectionHeader(String title, Color textColor, double fontScale) {
     return Padding(
       padding: const EdgeInsets.only(left: 4, bottom: 8),
       child: Text(
         title,
         style: GoogleFonts.playfairDisplay(
           textStyle: Theme.of(context).textTheme.titleLarge?.copyWith(
-          color: textColor,
+            color: textColor,
             fontWeight: FontWeight.w600
-          ), 
+          ).withAppFontScale(fontScale), 
         ),
       ),
     );
@@ -164,13 +170,14 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
   // Build a card with theme options (Light, Sepia, Dark)
   Widget _buildThemeToggle(
     BuildContext context, 
-    SettingsState settingsState, 
-    SettingsNotifier settingsNotifier, 
+    AppSettingsState appSettings, 
+    AppSettingsNotifier appSettingsNotifier, 
     ColorScheme colors,
-    Color textColor
+    Color textColor,
+    double fontScale
   ) {
-    final themeMode = settingsState.themeMode;
-    final isSepia = settingsState.isSepia;
+    final themeMode = appSettings.themeMode;
+    final isSepia = appSettings.isSepia;
     final isDark = Theme.of(context).brightness == Brightness.dark;
     
     return Card(
@@ -219,7 +226,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                     fontWeight: FontWeight.w600,
                     color: textColor,
                     letterSpacing: 0.1,
-                  ),
+                  ).withAppFontScale(fontScale),
                 ),
               ],
             ),
@@ -233,8 +240,9 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                   AppLocalizations.of(context)!.profileScreenThemeLight, 
                   AppThemeMode.light, 
                   themeMode, 
-                  settingsNotifier,
-                  colors
+                  appSettingsNotifier,
+                  colors,
+                  fontScale
                 ),
                 _buildThemeOption(
                   context, 
@@ -242,8 +250,9 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                   AppLocalizations.of(context)!.profileScreenThemeSepia, 
                   AppThemeMode.sepia, 
                   themeMode, 
-                  settingsNotifier,
-                  colors
+                  appSettingsNotifier,
+                  colors,
+                  fontScale
                 ),
                 _buildThemeOption(
                   context, 
@@ -251,8 +260,9 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                   AppLocalizations.of(context)!.profileScreenThemeDark, 
                   AppThemeMode.dark, 
                   themeMode, 
-                  settingsNotifier,
-                  colors
+                  appSettingsNotifier,
+                  colors,
+                  fontScale
                 ),
               ],
             ),
@@ -269,8 +279,9 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
     String label,
     AppThemeMode mode,
     AppThemeMode currentMode,
-    SettingsNotifier settingsNotifier,
+    AppSettingsNotifier appSettingsNotifier,
     ColorScheme colors,
+    double fontScale,
   ) {
     final isSelected = mode == currentMode;
     final isSepia = Theme.of(context).primaryColor == AppColor.primarySepia;
@@ -278,7 +289,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
     
     return InkWell(
       onTap: () {
-        settingsNotifier.setThemeMode(mode);
+        appSettingsNotifier.setThemeMode(mode);
       },
       borderRadius: BorderRadius.circular(12),
       child: Container(
@@ -321,7 +332,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                     : isSepia
                         ? AppColor.primarySepia
                         : colors.primary,
-              ),
+              ).withAppFontScale(fontScale),
             ),
           ],
         ),
@@ -329,196 +340,18 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
     );
   }
 
-  // Build font size selector with small, medium, and large options
-  Widget _buildFontSizeSelector(
-      BuildContext context,
-      SettingsState settingsState,
-      SettingsNotifier settingsNotifier,
-      ColorScheme colors,
-      Color textColor
-    ) {
-    final currentFontSize = settingsState.fontSize;
-    final isSepia = settingsState.isSepia;
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-      
-    return Card(
-      elevation: isDark ? 1 : 0.3,
-      margin: EdgeInsets.zero,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
-        side: BorderSide(
-          color: isSepia 
-              ? AppColor.primarySepia.withValues(alpha: 0.1) 
-              : isDark
-                  ? Colors.white.withValues(alpha: 0.05)
-                  : Colors.black.withValues(alpha: 0.05),
-          width: 0.5,
-        ),
-      ),
-      color: isSepia 
-          ? AppColor.surfaceSepia.withValues(alpha: 0.5) 
-          : isDark
-              ? colors.surface.withValues(alpha: 0.5)
-              : colors.surface.withValues(alpha: 0.8),
-      child: Padding(
-        padding: const EdgeInsets.all(20.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(8),
-                  decoration: BoxDecoration(
-                    color: colors.primary.withValues(alpha: 0.1),
-                    shape: BoxShape.circle,
-                  ),
-                  child: Icon(
-                    Icons.text_fields, 
-                    color: isSepia ? AppColor.primarySepia : colors.primary,
-                    size: 18,
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Text(
-                  AppLocalizations.of(context)!.profileScreenFontSizeLabel,
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w600,
-                    color: textColor,
-                    letterSpacing: 0.1,
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 20),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-              children: [
-                _buildFontSizeOption(
-                  context,
-                  'A',
-                  AppLocalizations.of(context)!.profileScreenFontSizeSmall,
-                  FontSize.small,
-                  currentFontSize,
-                  settingsNotifier,
-                  colors,
-                ),
-                _buildFontSizeOption(
-                  context,
-                  'A',
-                  AppLocalizations.of(context)!.profileScreenFontSizeMedium,
-                  FontSize.medium,
-                  currentFontSize,
-                  settingsNotifier,
-                  colors,
-                ),
-                _buildFontSizeOption(
-                  context,
-                  'A',
-                  AppLocalizations.of(context)!.profileScreenFontSizeLarge,
-                  FontSize.large,
-                  currentFontSize,
-                  settingsNotifier,
-                  colors,
-                ),
-              ],
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildFontSizeOption(
-    BuildContext context,
-    String letter,
-    String label,
-    FontSize size,
-    FontSize currentSize,
-    SettingsNotifier settingsNotifier,
-    ColorScheme colors,
-  ) {
-    final isSelected = size == currentSize;
-    final isSepia = Theme.of(context).primaryColor == AppColor.primarySepia;
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    
-    // Choose font size based on option
-    double fontSize = 14.0;
-    if (size == FontSize.small) {
-      fontSize = 14.0;
-    } else if (size == FontSize.medium) {
-      fontSize = 18.0;
-    } else if (size == FontSize.large) {
-      fontSize = 22.0;
-    }
-    
-    return InkWell(
-      onTap: () {
-        settingsNotifier.setFontSize(size);
-      },
-      borderRadius: BorderRadius.circular(12),
-      child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
-        decoration: BoxDecoration(
-          color: isSelected 
-              ? colors.primary.withValues(alpha: 0.9)
-              : Colors.transparent,
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(
-            color: isSelected 
-                ? colors.primary 
-                : isSepia
-                    ? AppColor.primarySepia.withValues(alpha: 0.2)
-                    : isDark
-                        ? Colors.white.withValues(alpha: 0.1)
-                        : colors.outline.withValues(alpha: 0.2),
-            width: isSelected ? 2 : 1,
-          ),
-        ),
-        child: Column(
-          children: [
-            Text(
-              letter,
-              style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                fontSize: fontSize,
-                fontWeight: FontWeight.w500,
-                color: isSelected 
-                    ? Colors.white 
-                    : isSepia
-                        ? AppColor.primarySepia
-                        : colors.primary,
-              ),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              label,
-              style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                fontSize: 12,
-                fontWeight: FontWeight.w500,
-                color: isSelected 
-                    ? Colors.white 
-                    : isSepia
-                        ? AppColor.primarySepia
-                        : colors.primary,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
 
   // Build language selector with options
   Widget _buildLanguageSelector(
       BuildContext context,
-      SettingsState settingsState,
-      SettingsNotifier settingsNotifier,
+      AppSettingsState appSettings,
+      AppSettingsNotifier appSettingsNotifier,
       ColorScheme colors,
-      Color textColor
+      Color textColor,
+      double fontScale
     ) {
-    final currentLanguage = settingsState.language;
-    final isSepia = settingsState.isSepia;
+    final currentLanguage = appSettings.language;
+    final isSepia = appSettings.isSepia;
     final isDark = Theme.of(context).brightness == Brightness.dark;
       
     return Card(
@@ -567,7 +400,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                     fontWeight: FontWeight.w600,
                     color: textColor,
                     letterSpacing: 0.1,
-                  ),
+                  ).withAppFontScale(fontScale),
                 ),
               ],
             ),
@@ -584,7 +417,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                     child: Material(
                       color: Colors.transparent,
                       child: InkWell(
-                        onTap: () => settingsNotifier.setLanguage(language),
+                        onTap: () => appSettingsNotifier.setLanguage(language),
                         borderRadius: BorderRadius.circular(12),
                         child: Container(
                           padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
@@ -609,7 +442,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                               color: isSelected ? Colors.white : colors.onSurfaceVariant,
                               fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
                               letterSpacing: 0.2,
-                            ),
+                            ).withAppFontScale(fontScale),
                           ),
                         ),
                       ),
@@ -633,6 +466,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
     ColorScheme colors,
     Color textColor,
     Color secondaryTextColor,
+    double fontScale,
     VoidCallback onTap,
   ) {
     final isSepia = Theme.of(context).primaryColor == AppColor.primarySepia;
@@ -688,7 +522,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                         fontWeight: FontWeight.w600,
                         color: textColor,
                         letterSpacing: 0.1,
-                      ),
+                      ).withAppFontScale(fontScale),
                     ),
                     const SizedBox(height: 4),
                     Text(
@@ -697,7 +531,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                         fontSize: 14,
                         color: secondaryTextColor,
                         letterSpacing: 0.1,
-                      ),
+                      ).withAppFontScale(fontScale),
                     ),
                   ],
                 ),
@@ -715,7 +549,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
   }
   
   // Build support card with help and contact options
-  Widget _buildSupportInfoSection(BuildContext context, ColorScheme colors, Color textColor, Color secondaryTextColor) {
+  Widget _buildSupportInfoSection(BuildContext context, ColorScheme colors, Color textColor, Color secondaryTextColor, double fontScale) {
     return Column(
       children: [
         _buildSettingCard(
@@ -726,6 +560,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
           colors,
           textColor,
           secondaryTextColor,
+          fontScale,
           () {
             _log.info('Help & FAQ tapped');
             ScaffoldMessenger.of(context).showSnackBar(
@@ -746,6 +581,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
           colors,
           textColor,
           secondaryTextColor,
+          fontScale,
           () {
             _log.info('Contact Us tapped');
             ScaffoldMessenger.of(context).showSnackBar(
@@ -762,7 +598,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
   }
   
   // Build app info card with version information
-  Widget _buildAppInfoCard(BuildContext context, ColorScheme colors, Color textColor, Color secondaryTextColor) {
+  Widget _buildAppInfoCard(BuildContext context, ColorScheme colors, Color textColor, Color secondaryTextColor, double fontScale) {
     final isSepia = Theme.of(context).primaryColor == AppColor.primarySepia;
     final isDark = Theme.of(context).brightness == Brightness.dark;
     
@@ -813,7 +649,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                       fontWeight: FontWeight.w600,
                       color: textColor,
                       letterSpacing: 0.1,
-                    ),
+                    ).withAppFontScale(fontScale),
                   ),
                   const SizedBox(height: 6),
                   Container(
@@ -829,7 +665,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                         fontWeight: FontWeight.w500,
                         color: isSepia ? AppColor.primarySepia : colors.primary,
                         letterSpacing: 0.1,
-                      ),
+                      ).withAppFontScale(fontScale),
                     ),
                   ),
                 ],
@@ -886,38 +722,41 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
           ElevatedButton(
             onPressed: () {
               _log.info('Clear Memory Cache button tapped');
+              final memoryClearedMessage = AppLocalizations.of(context)!.profileScreenMemoryCacheClearedSnackbar;
               cacheService.clearMemoryCache(); 
               if (!mounted) return;
               Navigator.of(context).pop(); 
               if (!mounted) return;
-                ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(content: Text(AppLocalizations.of(context)!.profileScreenMemoryCacheClearedSnackbar)),
-                );
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(content: Text(memoryClearedMessage)),
+              );
             },
             child: Text(AppLocalizations.of(context)!.profileScreenClearMemoryCacheButton),
           ),
           ElevatedButton(
             onPressed: () async {
               _log.info('Clear Persistent Cache button tapped');
+              final persistentClearedMessage = AppLocalizations.of(context)!.profileScreenPersistentCacheClearedSnackbar;
               await cacheService.clearPersistentCache(); 
               if (!mounted) return;
               Navigator.of(context).pop(); 
               if (!mounted) return;
-                ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(content: Text(AppLocalizations.of(context)!.profileScreenPersistentCacheClearedSnackbar)),
-                );
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(content: Text(persistentClearedMessage)),
+              );
             },
             child: Text(AppLocalizations.of(context)!.profileScreenClearPersistentCacheButton),
           ),
           ElevatedButton(
             onPressed: () async {
               _log.info('Clear All Cache button tapped');
+              final allCachesClearedMessage = AppLocalizations.of(context)!.profileScreenAllCachesClearedSnackbar;
               await cacheService.clearAllCaches(); 
               if (!mounted) return;
-                Navigator.of(context).pop();
+              Navigator.of(context).pop();
               if (!mounted) return;
               ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(content: Text(AppLocalizations.of(context)!.profileScreenAllCachesClearedSnackbar)),
+                SnackBar(content: Text(allCachesClearedMessage)),
               );
             },
             child: Text(AppLocalizations.of(context)!.profileScreenClearAllCachesButton),
@@ -937,6 +776,122 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
           Text(label),
           Text(value, style: const TextStyle(fontWeight: FontWeight.bold)),
         ],
+      ),
+    );
+  }
+
+  // Build font size selector
+  Widget _buildFontSizeSelector(
+    BuildContext context,
+    AppSettingsState appSettings,
+    AppSettingsNotifier appSettingsNotifier,
+    ColorScheme colors,
+    Color textColor,
+    Color secondaryTextColor
+  ) {
+         final currentFontSize = appSettings.appFontSize;
+    final isSepia = appSettings.isSepia;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    
+    return Card(
+      elevation: isDark ? 1 : 0.3,
+      margin: EdgeInsets.zero,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: BorderSide(
+          color: isSepia 
+              ? AppColor.primarySepia.withValues(alpha: 0.1) 
+              : isDark
+                  ? Colors.white.withValues(alpha: 0.05)
+                  : Colors.black.withValues(alpha: 0.05),
+          width: 0.5,
+        ),
+      ),
+      color: isSepia 
+          ? AppColor.surfaceSepia.withValues(alpha: 0.5) 
+          : isDark
+              ? colors.surface.withValues(alpha: 0.5)
+              : colors.surface.withValues(alpha: 0.8),
+      child: Padding(
+        padding: const EdgeInsets.all(20.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: colors.primary.withValues(alpha: 0.1),
+                    shape: BoxShape.circle,
+                  ),
+                  child: Icon(
+                    Icons.text_fields, 
+                    color: isSepia ? AppColor.primarySepia : colors.primary,
+                    size: 18,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Text(
+                  AppLocalizations.of(context)!.profileScreenFontSizeLabel,
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w600,
+                    color: textColor,
+                    letterSpacing: 0.1,
+                  ).withAppFontScale(appSettings.fontScale),
+                ),
+              ],
+            ),
+            const SizedBox(height: 20),
+            SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                children: AppFontSize.values.map((fontSize) {
+                  final isSelected = fontSize == currentFontSize;
+                  final backgroundColor = isSelected ? colors.primary : colors.surface.withValues(alpha: 0.7);
+                  
+                  return Padding(
+                    padding: const EdgeInsets.only(right: 12),
+                    child: Material(
+                      color: Colors.transparent,
+                      child: InkWell(
+                                                 onTap: () => appSettingsNotifier.setAppFontSize(fontSize),
+                        borderRadius: BorderRadius.circular(12),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+                          decoration: BoxDecoration(
+                            color: backgroundColor,
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(
+                              color: isSelected ? colors.primary : colors.outline.withValues(alpha: 0.2),
+                              width: isSelected ? 2 : 1,
+                            ),
+                            boxShadow: isSelected ? [
+                              BoxShadow(
+                                color: colors.primary.withAlpha((255 * 0.2).round()),
+                                blurRadius: 8,
+                                offset: const Offset(0, 2),
+                              ),
+                            ] : null,
+                          ),
+                          child: Text(
+                            fontSize.displayName,
+                            style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                              color: isSelected ? Colors.white : colors.onSurfaceVariant,
+                              fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
+                              letterSpacing: 0.2,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  );
+                }).toList(),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

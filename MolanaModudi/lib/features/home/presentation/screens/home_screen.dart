@@ -4,6 +4,8 @@ import 'package:go_router/go_router.dart';
 import '../../../../routes/route_names.dart'; // Import RouteNames
 import 'package:modudi/core/l10n/app_localizations_wrapper.dart'; // Import AppLocalizations
 import '../../../../core/themes/app_color.dart'; // Import AppColor from themes
+import '../../../../core/themes/app_theme.dart'; // Import for font scaling
+import '../../../../features/settings/presentation/providers/app_settings_provider.dart'; // Import for font scale
 import '../widgets/optimized_book_thumbnail.dart';
 import '../providers/cached_featured_books_provider.dart';
 import '../services/thumbnail_preloader_service.dart';
@@ -14,12 +16,12 @@ import '../providers/home_notifier.dart' as home_notifier;
 // Import our new BooksGrid component
 import '../widgets/category_grid.dart'; // Import our new CategoryGrid component
 import '../widgets/video_lectures_section.dart'; // Import our new widget
+import '../../../articles/presentation/widgets/homepage_articles_section.dart'; // Import HomepageArticlesSection
 // Import VideosScreen
 // import '../widgets/recent_article_card.dart'; // FIXME: File missing
 // import '../widgets/section_header.dart'; // FIXME: File missing
 // import '../widgets/video_lecture_card.dart'; // FIXME: File missing
 // import '../widgets/welcome_banner.dart'; // FIXME: File missing
-import '../../../../core/utils/app_logger.dart'; // Import AppLogger
 
 class HomeScreen extends ConsumerStatefulWidget {
   const HomeScreen({super.key = const ValueKey('home_screen')});
@@ -63,6 +65,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   @override
   Widget build(BuildContext context) {
     final homeState = ref.watch(home_notifier.homeNotifierProvider);
+    final appSettings = ref.watch(appSettingsProvider);
+    final fontScale = appSettings.fontScale;
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
     final isSepia = theme.scaffoldBackgroundColor == AppColor.backgroundSepia;
@@ -72,37 +76,37 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         ? AppColor.backgroundDark 
         : isSepia 
             ? AppColor.backgroundSepia 
-            : const Color(0xFFFAFAFA);
+            : AppColor.background;
             
     final appBarColor = isDark 
         ? AppColor.surfaceDark 
         : isSepia 
             ? AppColor.surfaceSepia 
-            : Colors.white;
+            : AppColor.surface;
             
     final textColor = isDark 
         ? AppColor.textPrimaryDark 
         : isSepia 
             ? AppColor.textPrimarySepia 
-            : const Color(0xFF222222);
+            : AppColor.textPrimary;
             
     final searchIconColor = isDark
-        ? const Color(0xFF10B981) // Lighter green for dark mode
+        ? AppColor.accentDark // emerald-400 for dark mode
         : isSepia
-            ? const Color(0xFF047857) // Darker green for sepia
-            : const Color(0xFF059669); // Standard green for light
+            ? AppColor.primarySepia // warm brown for sepia theme
+            : AppColor.primaryLight; // emerald-600 for light theme
             
     final searchBgColor = isDark
-        ? searchIconColor.withOpacity(0.15)
+        ? searchIconColor.withValues(alpha: 0.15)
         : isSepia
-            ? searchIconColor.withOpacity(0.12)
-            : searchIconColor.withOpacity(0.08);
+            ? AppColor.primarySepia.withValues(alpha: 0.08) // Very subtle sepia background
+            : searchIconColor.withValues(alpha: 0.08);
             
     final searchBorderColor = isDark
-        ? searchIconColor.withOpacity(0.2)
+        ? searchIconColor.withValues(alpha: 0.2)
         : isSepia
-            ? searchIconColor.withOpacity(0.15)
-            : searchIconColor.withOpacity(0.12);
+            ? AppColor.primarySepia.withValues(alpha: 0.12) // Subtle sepia border
+            : searchIconColor.withValues(alpha: 0.12);
 
     return Scaffold(
       backgroundColor: backgroundColor,
@@ -111,45 +115,69 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         foregroundColor: textColor,
         elevation: 0,
         surfaceTintColor: Colors.transparent,
-        leading: IconButton(
-          icon: Icon(Icons.menu, color: textColor),
-          onPressed: () {
-            // Placeholder for drawer functionality
-            // Scaffold.of(context).openDrawer(); 
-            AppLogger.logUserAction("HomeScreen", "Menu button tapped");
-          },
-        ),
-        title: Text(
-          AppLocalizations.of(context)!.homeScreenAppBarTitle, 
-          style: TextStyle(
-            fontWeight: FontWeight.w600,
-            fontSize: 18,
-            color: textColor,
-            letterSpacing: -0.5,
-          )
+        toolbarHeight: 70, // Slightly taller for better proportions
+        automaticallyImplyLeading: false, // This removes the back button/menu button
+        titleSpacing: 16, // Add proper spacing since we removed the leading widget
+        title: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Text(
+              AppLocalizations.of(context)!.homeScreenAppBarTitle, 
+              style: TextStyle(
+                fontWeight: FontWeight.w700, // Bolder for Apple-style impact
+                fontSize: 20, // Larger for more prominence
+                color: textColor,
+                letterSpacing: -0.5, // Tighter letter spacing for modern look
+                height: 1.2,
+              ).withAppFontScale(fontScale)
+            ),
+            Text(
+              'Discover Islamic wisdom',
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w400,
+                color: isDark 
+                    ? AppColor.textSecondaryDark 
+                    : isSepia 
+                        ? AppColor.textSecondarySepia 
+                        : AppColor.textSecondary,
+                letterSpacing: -0.1,
+              ).withAppFontScale(fontScale),
+            ),
+          ],
         ),
         actions: [
-          IconButton(
-            icon: Container(
-              padding: const EdgeInsets.all(8),
-              decoration: BoxDecoration(
-                color: searchBgColor,
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(
-                  color: searchBorderColor,
-                  width: 1,
+          Container(
+            margin: const EdgeInsets.only(right: 16),
+            child: IconButton(
+              icon: Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: searchBgColor,
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(
+                    color: searchBorderColor,
+                    width: 1.5,
+                  ),
+                  boxShadow: [
+                    BoxShadow(
+                      color: searchIconColor.withValues(alpha: 0.1),
+                      blurRadius: 8,
+                      offset: const Offset(0, 2),
+                    ),
+                  ],
+                ),
+                child: Icon(
+                  Icons.search_rounded, 
+                  color: searchIconColor,
+                  size: 20,
                 ),
               ),
-              child: Icon(
-                Icons.search, 
-                color: searchIconColor,
-                size: 20,
-              ),
+              onPressed: _navigateToGlobalSearch,
+              tooltip: 'Search books, chapters, and videos',
             ),
-            onPressed: _navigateToGlobalSearch,
-            tooltip: 'Search books, chapters, and videos',
           ),
-          const SizedBox(width: 16),
         ],
       ),
       body: _buildBody(context, homeState),
@@ -168,13 +196,13 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         ? AppColor.textPrimaryDark 
         : isSepia 
             ? AppColor.textPrimarySepia 
-            : const Color(0xFF222222);
+            : AppColor.textPrimary;
             
     final primaryGreen = isDark
-        ? const Color(0xFF10B981) // Lighter green for dark mode
+        ? AppColor.accentDark // emerald-400 for dark mode
         : isSepia
-            ? const Color(0xFF047857) // Darker green for sepia
-            : const Color(0xFF059669); // Standard green for light
+            ? AppColor.primarySepia // warm brown for sepia theme
+            : AppColor.primaryLight; // emerald-600 for light theme
     
     switch (state.status) {
       case HomeStatus.loading:
@@ -193,14 +221,14 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
                 Container(
-                  padding: const EdgeInsets.all(16),
+                  padding: const EdgeInsets.all(14), // Reduced padding
                   decoration: BoxDecoration(
                     color: isDark 
-                        ? AppColor.surfaceDark.withOpacity(0.5)
+                        ? AppColor.surfaceDark.withValues(alpha: 0.5)
                         : isSepia 
-                            ? AppColor.surfaceSepia.withOpacity(0.5)
-                            : const Color(0xFFF7F7F7),
-                    borderRadius: BorderRadius.circular(16),
+                            ? AppColor.surfaceSepia.withValues(alpha: 0.5)
+                            : AppColor.surfaceVariant,
+                    borderRadius: BorderRadius.circular(12), // Smaller radius
                   ),
                   child: Icon(
                     Icons.error_outline, 
@@ -208,8 +236,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                         ? AppColor.textSecondaryDark 
                         : isSepia 
                             ? AppColor.textSecondarySepia 
-                            : const Color(0xFF717171),
-                    size: 32,
+                            : AppColor.textSecondary,
+                    size: 28, // Slightly smaller icon
                   ),
                 ),
                 const SizedBox(height: 24),
@@ -231,7 +259,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                         ? AppColor.textSecondaryDark 
                         : isSepia 
                             ? AppColor.textSecondarySepia 
-                            : const Color(0xFF717171),
+                            : AppColor.textSecondary,
                   ),
                   textAlign: TextAlign.center,
                 ),
@@ -278,12 +306,12 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const SizedBox(height: 16), // Reduced top spacing
+                const SizedBox(height: 8), // Minimal top spacing
                 
                 // Banner Carousel (Welcome + Continue Reading)
                 const BannerCarousel(),
                 
-                const SizedBox(height: 36), // Slightly reduced spacing
+                const SizedBox(height: 28), // Optimized spacing
                 
                 // Featured Books with "View All" header
                 Padding(
@@ -329,7 +357,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                   ),
                 ),
                 
-                const SizedBox(height: 16), // Consistent spacing
+                const SizedBox(height: 12), // Optimized spacing
                 
                 // Use optimized featured books with better caching
                 Consumer(
@@ -338,7 +366,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                     
                     return featuredBooksAsync.when(
                       loading: () => SizedBox(
-                        height: 300,
+                        height: 280, // Matched with reduced height
                         child: Center(
                           child: CircularProgressIndicator(
                             strokeWidth: 2,
@@ -347,7 +375,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                         ),
                       ),
                       error: (err, stack) => SizedBox(
-                        height: 300,
+                        height: 280, // Matched with reduced height
                         child: Center(
                           child: Padding(
                             padding: const EdgeInsets.all(24),
@@ -358,9 +386,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                                   padding: const EdgeInsets.all(12),
                                   decoration: BoxDecoration(
                                     color: isDark 
-                                        ? AppColor.surfaceDark.withOpacity(0.5)
+                                        ? AppColor.surfaceDark.withValues(alpha: 0.5)
                                         : isSepia 
-                                            ? AppColor.surfaceSepia.withOpacity(0.5)
+                                            ? AppColor.surfaceSepia.withValues(alpha: 0.5)
                                             : const Color(0xFFF7F7F7),
                                     borderRadius: BorderRadius.circular(12),
                                   ),
@@ -394,7 +422,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                                   },
                                   style: TextButton.styleFrom(
                                     padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                                    backgroundColor: primaryGreen.withOpacity(0.08),
+                                    backgroundColor: primaryGreen.withValues(alpha: 0.08),
                                     shape: RoundedRectangleBorder(
                                       borderRadius: BorderRadius.circular(8),
                                     ),
@@ -416,7 +444,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                       data: (books) {
                         if (books.isEmpty) {
                           return SizedBox(
-                            height: 300,
+                            height: 280, // Matched with reduced height
                             child: Center(
                               child: Text(
                                 AppLocalizations.of(context)!.homeScreenNoFeaturedBooks,
@@ -439,7 +467,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                         });
                         
                         return SizedBox(
-                          height: 300,
+                          height: 280, // Slightly reduced height
                           child: ListView.builder(
                             scrollDirection: Axis.horizontal,
                             padding: const EdgeInsets.symmetric(horizontal: 24),
@@ -447,17 +475,13 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                             itemBuilder: (context, index) {
                               final book = books[index];
                               return Container(
-                                width: 160,
+                                width: 150, // Slightly reduced width for better spacing
                                 margin: EdgeInsets.only(
-                                  right: index == books.length - 1 ? 0 : 20,
+                                  right: index == books.length - 1 ? 0 : 16, // Reduced margin
                                 ),
                                 child: GestureDetector(
                                   onTap: () {
-                                    // Log the book click using AppLogger
-                                    AppLogger.logUserAction('HomeScreen', 'book_clicked', 
-                                      details: {'bookId': book.firestoreDocId, 'title': book.title});
-                                    
-                                    // Use bookDetailItem route that shows BookDetailScreen instead of firebase-book route
+                                    // Navigate to book detail
                                     context.goNamed(
                                       RouteNames.bookDetailItem,
                                       pathParameters: {'bookId': book.firestoreDocId}
@@ -468,26 +492,26 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                                     children: [
                                       // Book Cover
                                       Container(
-                                        height: 220,
+                                        height: 200, // Reduced height
                                         decoration: BoxDecoration(
-                                          borderRadius: BorderRadius.circular(16),
+                                          borderRadius: BorderRadius.circular(12), // Smaller radius
                                           boxShadow: isDark ? [] : [
                                             BoxShadow(
-                                              color: Colors.black.withOpacity(0.08),
-                                              blurRadius: 20,
-                                              offset: const Offset(0, 8),
+                                              color: Colors.black.withValues(alpha: 0.06), // Reduced shadow
+                                              blurRadius: 16,
+                                              offset: const Offset(0, 4),
                                             ),
                                           ],
                                         ),
                                         child: ClipRRect(
-                                          borderRadius: BorderRadius.circular(16),
+                                          borderRadius: BorderRadius.circular(12),
                                           child: book.thumbnailUrl != null && book.thumbnailUrl!.isNotEmpty
                                               ? OptimizedBookThumbnail(
                                                   imageUrl: book.thumbnailUrl!,
                                                   bookId: book.firestoreDocId,
-                                                  width: 160,
-                                                  height: 220,
-                                                  borderRadius: BorderRadius.circular(16),
+                                                  width: 150,
+                                                  height: 200,
+                                                  borderRadius: BorderRadius.circular(12),
                                                 )
                                               : Container(
                                                   decoration: BoxDecoration(
@@ -496,7 +520,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                                                         : isSepia 
                                                             ? AppColor.surfaceSepia 
                                                             : const Color(0xFFF7F7F7),
-                                                    borderRadius: BorderRadius.circular(16),
+                                                    borderRadius: BorderRadius.circular(12),
                                                   ),
                                                   child: Center(
                                                     child: Icon(
@@ -512,7 +536,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                                                 ),
                                         ),
                                       ),
-                                      const SizedBox(height: 12),
+                                      const SizedBox(height: 10), // Reduced spacing
                                       // Book Title
                                       Text(
                                         book.title ?? AppLocalizations.of(context)!.homeScreenUntitledBook,
@@ -520,7 +544,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                                         overflow: TextOverflow.ellipsis,
                                         style: TextStyle(
                                           fontWeight: FontWeight.w500,
-                                          fontSize: 14,
+                                          fontSize: 13, // Slightly smaller font
                                           color: textColor,
                                           height: 1.3,
                                         ),
@@ -537,7 +561,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                   },
                 ),
                 
-                const SizedBox(height: 44), // Consistent spacing
+                const SizedBox(height: 32), // Optimized spacing
                 
                 // Categories with our new CategoryGrid component
                 Padding(
@@ -586,17 +610,13 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                         ],
                       ),
                       
-                      const SizedBox(height: 16), // Consistent spacing
+                      const SizedBox(height: 12), // Optimized spacing
                       
                       // Category grid with dynamic data
                       CategoryGrid(
                         categories: state.categories,
                         showTitle: false, // We already have a title above
                         onCategoryTap: (categoryId) {
-                          // Navigate to category books
-                          AppLogger.logUserAction('HomeScreen', 'category_tapped', 
-                            details: {'categoryId': categoryId});
-                            
                           // Navigate to category books screen
                           context.pushNamed(
                             RouteNames.categoryBooks,
@@ -608,12 +628,12 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                   ),
                 ),
                 
-                const SizedBox(height: 44), // Consistent spacing
+                const SizedBox(height: 32), // Optimized spacing
                 
                 // Video Lectures section - using custom widget
                 const VideoLecturesSection(),
                 
-                const SizedBox(height: 20), // Reduced spacing between video and biography from 32px to 20px
+                const SizedBox(height: 24), // Optimized spacing
                 
                 // Biography Section with proper header
                 Padding(
@@ -631,11 +651,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                           letterSpacing: -0.5,
                         ),
                       ),
-                      const SizedBox(height: 16),
+                      const SizedBox(height: 12),
                       
                       // Biography Card
                       Container(
-                        padding: const EdgeInsets.all(24),
+                        padding: const EdgeInsets.all(20), // Reduced padding
                         decoration: BoxDecoration(
                           color: isDark 
                               ? AppColor.surfaceDark 
@@ -644,12 +664,12 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                                   : Colors.white,
                           borderRadius: BorderRadius.circular(20),
                           border: Border.all(
-                            color: primaryGreen.withOpacity(0.08),
+                            color: primaryGreen.withValues(alpha: 0.08),
                             width: 1,
                           ),
                           boxShadow: isDark ? [] : [
                             BoxShadow(
-                              color: Colors.black.withOpacity(0.06),
+                              color: Colors.black.withValues(alpha: 0.06),
                               blurRadius: 20,
                               offset: const Offset(0, 8),
                             ),
@@ -670,7 +690,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                                 height: 1.5,
                               ),
                             ),
-                            const SizedBox(height: 20),
+                            const SizedBox(height: 16), // Reduced spacing
                             TextButton(
                               style: TextButton.styleFrom(
                                 padding: EdgeInsets.zero,
@@ -699,113 +719,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                   ),
                 ),
                 
-                const SizedBox(height: 44), // Consistent spacing
-                
-                // Recent Articles - modernized with card UI
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 24),
-                  child: Text(
-                    AppLocalizations.of(context)!.homeScreenRecentArticlesTitle,
-                    style: TextStyle(
-                      fontSize: 22,
-                      fontWeight: FontWeight.w600,
-                      color: textColor,
-                      letterSpacing: -0.5,
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 16), // Consistent spacing
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 24),
-                  child: Container(
-                    padding: const EdgeInsets.all(24),
-                    decoration: BoxDecoration(
-                      color: isDark 
-                          ? AppColor.surfaceDark 
-                          : isSepia 
-                              ? AppColor.surfaceSepia 
-                              : Colors.white,
-                      borderRadius: BorderRadius.circular(20),
-                      border: Border.all(
-                        color: primaryGreen.withOpacity(0.08),
-                        width: 1,
-                      ),
-                      boxShadow: isDark ? [] : [
-                        BoxShadow(
-                          color: Colors.black.withOpacity(0.06),
-                          blurRadius: 20,
-                          offset: const Offset(0, 8),
-                        ),
-                      ],
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'The Islamic State: Principles and Structure',
-                          style: TextStyle(
-                            fontWeight: FontWeight.w500,
-                            fontSize: 16,
-                            color: textColor,
-                            height: 1.3,
-                          ),
-                        ),
-                        const SizedBox(height: 12),
-                        Text(
-                          "An analysis of Maududi's political thought and his vision for governance.",
-                          style: TextStyle(
-                            fontSize: 14,
-                            color: isDark 
-                                ? AppColor.textSecondaryDark 
-                                : isSepia 
-                                    ? AppColor.textSecondarySepia 
-                                    : const Color(0xFF717171),
-                            height: 1.4,
-                          ),
-                        ),
-                        const SizedBox(height: 20),
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            Text(
-                              '7 min read',
-                              style: TextStyle(
-                                fontSize: 12,
-                                color: isDark 
-                                    ? AppColor.textSecondaryDark 
-                                    : isSepia 
-                                        ? AppColor.textSecondarySepia 
-                                        : const Color(0xFF717171),
-                              ),
-                            ),
-                            TextButton(
-                              style: TextButton.styleFrom(
-                                padding: EdgeInsets.zero,
-                                minimumSize: Size.zero,
-                                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                              ),
-                              onPressed: () {
-                                // Read article
-                              },
-                              child: Text(
-                                'Read Now',
-                                style: TextStyle(
-                                  color: primaryGreen,
-                                  fontWeight: FontWeight.w500,
-                                  fontSize: 13,
-                                  decoration: TextDecoration.underline,
-                                  decorationColor: primaryGreen,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-                
-                const SizedBox(height: 60), // Final bottom spacing
+                // Recent Articles - dynamic content with same UI
+                const HomepageArticlesSection(),
               ],
             ),
           ),

@@ -1,6 +1,7 @@
 /// Contains constant definitions for route paths used in the app.
 class RouteNames {
   static const String splash = '/';
+  static const String main = '/main';
   static const String home = '/home';
   static const String library = '/library';
   static const String history = '/history'; // Added History route

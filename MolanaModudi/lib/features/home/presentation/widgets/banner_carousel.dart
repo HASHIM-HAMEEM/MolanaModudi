@@ -95,10 +95,10 @@ class _BannerCarouselState extends ConsumerState<BannerCarousel> with SingleTick
             : const Color(0xFF717171); // Dark subtitle for light theme
             
     final iconBgColor = isDark 
-        ? AppColor.textPrimaryDark.withOpacity(0.15) 
+        ? AppColor.textPrimaryDark.withValues(alpha: 0.15) 
         : isSepia 
-            ? AppColor.textPrimarySepia.withOpacity(0.15) // Use dark brown for icon background
-            : const Color(0xFF059669).withOpacity(0.08); // Light green background for light theme
+            ? AppColor.textPrimarySepia.withValues(alpha: 0.15) // Use dark brown for icon background
+            : const Color(0xFF059669).withValues(alpha: 0.08); // Light green background for light theme
             
     final iconColor = isDark 
         ? AppColor.textPrimaryDark 
@@ -111,20 +111,20 @@ class _BannerCarouselState extends ConsumerState<BannerCarousel> with SingleTick
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 24),
         child: Container(
-          height: 135, // Further increased height to show full text
-          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 20), // Adjusted padding
+          height: 120, // Optimized height
+          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16), // Reduced padding
           decoration: BoxDecoration(
             color: bannerColor,
             borderRadius: BorderRadius.circular(20),
             border: isDark ? null : Border.all( // Add border for light theme
               color: isSepia 
-                  ? AppColor.textPrimarySepia.withOpacity(0.3) // Use dark brown for sepia border
-                  : const Color(0xFF059669).withOpacity(0.12),
+                  ? AppColor.textPrimarySepia.withValues(alpha: 0.3) // Use dark brown for sepia border
+                  : const Color(0xFF059669).withValues(alpha: 0.12),
               width: 1,
             ),
             boxShadow: isDark ? [] : [
               BoxShadow(
-                color: Colors.black.withOpacity(0.08),
+                color: Colors.black.withValues(alpha: 0.08),
                 blurRadius: 20,
                 offset: const Offset(0, 8),
               ),
@@ -140,17 +140,17 @@ class _BannerCarouselState extends ConsumerState<BannerCarousel> with SingleTick
                     Text(
                       l10n.homeScreenWelcomeTitle,
                       style: TextStyle(
-                        fontSize: 19, // Keep same font size as requested
+                        fontSize: 17, // Slightly reduced font size
                         fontWeight: FontWeight.w600,
                         color: titleColor, // Green color
                         letterSpacing: -0.5,
-                        height: 1.4, // Better line height for text wrapping
+                        height: 1.3, // Optimized line height
                       ),
                       maxLines: 2, // Allow 2 lines for full text
                       overflow: TextOverflow.visible, // Changed from ellipsis to visible
                       softWrap: true, // Ensure proper text wrapping
                     ),
-                    const SizedBox(height: 8),
+                    const SizedBox(height: 6),
                     Text(
                       l10n.homeScreenWelcomeSubtitle,
                       style: TextStyle(
@@ -165,19 +165,19 @@ class _BannerCarouselState extends ConsumerState<BannerCarousel> with SingleTick
                   ],
                 ),
               ),
-              const SizedBox(width: 16),
+              const SizedBox(width: 12),
               Container(
-                width: 52,
-                height: 52,
+                width: 48,
+                height: 48,
                 decoration: BoxDecoration(
                   color: iconBgColor,
-                  borderRadius: BorderRadius.circular(16),
+                  borderRadius: BorderRadius.circular(14),
                 ),
                 child: Center(
                   child: Icon(
                     Icons.person_outline, 
                     color: iconColor,
-                    size: 24,
+                      size: 22,
                   ),
                 ),
               ),
@@ -214,10 +214,10 @@ class _BannerCarouselState extends ConsumerState<BannerCarousel> with SingleTick
             : const Color(0xFF717171); // Dark subtitle for light theme
             
     final iconBgColor = isDark 
-        ? AppColor.textPrimaryDark.withOpacity(0.15) 
+        ? AppColor.textPrimaryDark.withValues(alpha: 0.15) 
         : isSepia 
-            ? AppColor.textPrimarySepia.withOpacity(0.15) // Use dark brown for icon background
-            : const Color(0xFF059669).withOpacity(0.08); // Light green background for light theme
+            ? AppColor.textPrimarySepia.withValues(alpha: 0.15) // Use dark brown for icon background
+            : const Color(0xFF059669).withValues(alpha: 0.08); // Light green background for light theme
             
     final iconColor = isDark 
         ? AppColor.textPrimaryDark 
@@ -267,13 +267,13 @@ class _BannerCarouselState extends ConsumerState<BannerCarousel> with SingleTick
                       borderRadius: BorderRadius.circular(20),
                       border: isDark ? null : Border.all( // Add border for light theme
                         color: isSepia 
-                            ? AppColor.textPrimarySepia.withOpacity(0.3) // Use dark brown for sepia border
-                            : const Color(0xFF059669).withOpacity(0.12),
+                            ? AppColor.textPrimarySepia.withValues(alpha: 0.3) // Use dark brown for sepia border
+                            : const Color(0xFF059669).withValues(alpha: 0.12),
                         width: 1,
                       ),
                       boxShadow: isDark ? [] : [
                         BoxShadow(
-                          color: Colors.black.withOpacity(0.08),
+                          color: Colors.black.withValues(alpha: 0.08),
                           blurRadius: 20,
                           offset: const Offset(0, 8),
                         ),
@@ -364,9 +364,9 @@ class _BannerCarouselState extends ConsumerState<BannerCarousel> with SingleTick
             : const Color(0xFF222222);
             
     final inactiveColor = isDark 
-        ? AppColor.textSecondaryDark.withOpacity(0.3) 
+        ? AppColor.textSecondaryDark.withValues(alpha: 0.3) 
         : isSepia 
-            ? AppColor.textSecondarySepia.withOpacity(0.3) 
+            ? AppColor.textSecondarySepia.withValues(alpha: 0.3) 
             : const Color(0xFFE5E5E5);
     
     return GestureDetector(
@@ -405,7 +405,7 @@ class _BannerCarouselState extends ConsumerState<BannerCarousel> with SingleTick
             borderRadius: BorderRadius.circular(20),
             boxShadow: isDark ? [] : [
               BoxShadow(
-                color: Colors.black.withOpacity(0.08),
+                color: Colors.black.withValues(alpha: 0.08),
                 blurRadius: 20,
                 offset: const Offset(0, 8),
               ),
@@ -419,7 +419,7 @@ class _BannerCarouselState extends ConsumerState<BannerCarousel> with SingleTick
                   borderRadius: BorderRadius.circular(12),
                   boxShadow: [
                     BoxShadow(
-                      color: Colors.black.withOpacity(0.1),
+                      color: Colors.black.withValues(alpha: 0.1),
                       blurRadius: 8,
                       offset: const Offset(0, 4),
                     ),
@@ -542,7 +542,7 @@ class _BannerCarouselState extends ConsumerState<BannerCarousel> with SingleTick
                 height: 36,
                 decoration: BoxDecoration(
                   color: isDark 
-                      ? AppColor.surfaceDark.withOpacity(0.5) 
+                      ? AppColor.surfaceDark.withValues(alpha: 0.5) 
                       : const Color(0xFFF7F7F7),
                   borderRadius: BorderRadius.circular(10),
                 ),

@@ -18,6 +18,7 @@ import './live_reading_progress_provider.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart'; // Added for font families
 import 'package:modudi/features/settings/presentation/providers/settings_provider.dart'; // Added for settings
+import 'package:modudi/features/reading/presentation/providers/reading_settings_provider.dart'; // Added for reading-specific settings
 import 'package:modudi/core/themes/app_color.dart'; // Added for theme colors
 import 'package:modudi/core/extensions/string_extensions.dart' show LanguageExtensions; // Added for language checks
 import 'package:url_launcher/url_launcher.dart'; // Added for launchUrl
@@ -189,20 +190,18 @@ class ReadingNotifier extends StateNotifier<ReadingState> {
     
     _chapterIdToLogicalIndex.clear();
 
-    // Access settings for styling
-    final settings = _ref.read(settingsProvider);
-    final currentThemeMode = settings.themeMode;
-    final double currentFontSize = settings.fontSize.size;
-    final String currentFontType = "SansSerif"; // Default, as SettingsState has no fontFamilyName. Used for non-Urdu/Arabic.
-    final double currentLineSpacing = 1.5; // Default, as SettingsState has no lineHeight.
-    final double textScaleFactor = 1.0; // Default, MarkdownStyleSheet also defaults to 1.0. Base size is settings.fontSize.size.
+    // Access reading-specific settings for styling
+    final readingSettings = _ref.read(readingSettingsProvider);
+    final currentThemeMode = readingSettings.themeMode;
+    final double currentFontSize = readingSettings.fontSize.size;
+    final String currentFontType = "SansSerif"; // Default, as ReadingSettingsState has custom font family handling
+    final double currentLineSpacing = readingSettings.lineSpacing;
+    final double textScaleFactor = 1.0; // Default, MarkdownStyleSheet also defaults to 1.0. Base size is readingSettings.fontSize.size.
 
-    // Determine theme-based colors
-    // This part might need access to the actual ThemeData object if AppColor doesn't cover all Markdown styles
-    // For simplicity, we'll use basic onSurface color. A more robust solution might pass ThemeData or specific colors.
-    final onSurfaceColor = currentThemeMode == AppThemeMode.dark 
+    // Determine theme-based colors based on reading theme mode
+    final onSurfaceColor = currentThemeMode == ReadingThemeMode.dark 
         ? AppColor.textPrimaryDark 
-        : currentThemeMode == AppThemeMode.sepia 
+        : currentThemeMode == ReadingThemeMode.sepia 
             ? AppColor.textPrimarySepia 
             : AppColor.textPrimary;
 
@@ -242,7 +241,7 @@ class ReadingNotifier extends StateNotifier<ReadingState> {
         _log.info('Creating MarkdownStyleSheet for heading: ${heading.title ?? "Untitled"}, font size: $currentFontSize, theme: $currentThemeMode');
         
         ThemeData markdownTheme;
-        if (currentThemeMode == AppThemeMode.dark) {
+        if (currentThemeMode == ReadingThemeMode.dark) {
           markdownTheme = ThemeData.dark().copyWith(
             textTheme: ThemeData.dark().textTheme.copyWith(
               bodyMedium: TextStyle(fontSize: currentFontSize, color: onSurfaceColor),

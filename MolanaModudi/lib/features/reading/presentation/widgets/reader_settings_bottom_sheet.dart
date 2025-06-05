@@ -159,7 +159,7 @@ class _ReaderSettingsBottomSheetState extends ConsumerState<ReaderSettingsBottom
               controller: _tabController,
               physics: const NeverScrollableScrollPhysics(), // Prevents swipe between tabs, good for slider interaction
               children: [
-                _buildAppearanceTab(theme, appSettings, appSettingsNotifier),
+                _buildAppearanceTab(theme, readingSettings, readingSettingsNotifier),
                 _buildTypographyTab(theme, readingSettings, readingSettingsNotifier),
               ],
             ),
@@ -169,7 +169,7 @@ class _ReaderSettingsBottomSheetState extends ConsumerState<ReaderSettingsBottom
     );
   }
 
-  Widget _buildAppearanceTab(ThemeData theme, AppSettingsState appSettings, AppSettingsNotifier appSettingsNotifier) {
+  Widget _buildAppearanceTab(ThemeData theme, ReadingSettingsState readingSettings, ReadingSettingsNotifier readingSettingsNotifier) {
     return SingleChildScrollView(
       padding: const EdgeInsets.symmetric(horizontal: 24),
       dragStartBehavior: DragStartBehavior.down,
@@ -201,10 +201,10 @@ class _ReaderSettingsBottomSheetState extends ConsumerState<ReaderSettingsBottom
                 Icons.light_mode_outlined,
                 Colors.white,
                 Colors.grey[900]!,
-                  appSettings.themeMode == AppThemeMode.light,
+                  readingSettings.themeMode == ReadingThemeMode.light,
                 () {
                   HapticFeedback.selectionClick();
-                  appSettingsNotifier.setThemeMode(AppThemeMode.light);
+                  readingSettingsNotifier.setReadingThemeMode(ReadingThemeMode.light);
                   // Auto-dismiss after theme change
                   _autoDismissPanel();
                 },
@@ -215,10 +215,10 @@ class _ReaderSettingsBottomSheetState extends ConsumerState<ReaderSettingsBottom
                 Icons.dark_mode_outlined,
                 Colors.grey[900]!,
                 Colors.white,
-                  appSettings.themeMode == AppThemeMode.dark,
+                  readingSettings.themeMode == ReadingThemeMode.dark,
                 () {
                   HapticFeedback.selectionClick();
-                  appSettingsNotifier.setThemeMode(AppThemeMode.dark);
+                  readingSettingsNotifier.setReadingThemeMode(ReadingThemeMode.dark);
                   // Auto-dismiss after theme change
                   _autoDismissPanel();
                 },
@@ -229,10 +229,10 @@ class _ReaderSettingsBottomSheetState extends ConsumerState<ReaderSettingsBottom
                 Icons.auto_stories_outlined,
                 const Color(0xFFF4F1E8),
                 const Color(0xFF5C4B37),
-                  appSettings.themeMode == AppThemeMode.sepia,
+                  readingSettings.themeMode == ReadingThemeMode.sepia,
                 () {
                   HapticFeedback.selectionClick();
-                  appSettingsNotifier.setThemeMode(AppThemeMode.sepia);
+                  readingSettingsNotifier.setReadingThemeMode(ReadingThemeMode.sepia);
                   // Auto-dismiss after theme change
                   _autoDismissPanel();
                 },
@@ -243,10 +243,10 @@ class _ReaderSettingsBottomSheetState extends ConsumerState<ReaderSettingsBottom
                 Icons.brightness_auto_outlined,
                 theme.colorScheme.surface,
                 theme.colorScheme.onSurface,
-                  appSettings.themeMode == AppThemeMode.system,
+                  readingSettings.themeMode == ReadingThemeMode.system,
                 () {
                   HapticFeedback.selectionClick();
-                  appSettingsNotifier.setThemeMode(AppThemeMode.system);
+                  readingSettingsNotifier.setReadingThemeMode(ReadingThemeMode.system);
                   // Auto-dismiss after theme change
                   _autoDismissPanel();
                 },
@@ -439,8 +439,8 @@ class _ReaderSettingsBottomSheetState extends ConsumerState<ReaderSettingsBottom
           
           const SizedBox(height: 32),
           
-          // Preview section
-          _buildReadingTextPreview(theme, readingSettings),
+          // Reading Experience section
+          _buildReadingExperienceSection(theme, readingSettings, readingSettingsNotifier),
           
           const SizedBox(height: 32),
           ],
@@ -450,7 +450,7 @@ class _ReaderSettingsBottomSheetState extends ConsumerState<ReaderSettingsBottom
 
   Widget _buildReadingFontSelection(ThemeData theme, ReadingSettingsState readingSettings, ReadingSettingsNotifier readingSettingsNotifier) {
     final fonts = [
-      // Arabic/Urdu fonts
+      // Arabic/Urdu fonts only
       {
         'name': 'Jameel Noori Nastaleeq',
         'family': ReadingFontFamily.jameelNoori,
@@ -464,47 +464,10 @@ class _ReaderSettingsBottomSheetState extends ConsumerState<ReaderSettingsBottom
         'description': 'Modern Urdu'
       },
       {
-        'name': 'Noto Naskh Arabic',
-        'family': ReadingFontFamily.notoNaskh,
-        'preview': 'نوتو نسخ العربية',
-        'description': 'Arabic Script'
-      },
-      {
         'name': 'Amiri Quran',
         'family': ReadingFontFamily.amiriQuran,
         'preview': 'أميري قرآن',
         'description': 'Quranic Style'
-      },
-      {
-        'name': 'Scheherazade New',
-        'family': ReadingFontFamily.scheherazade,
-        'preview': 'شهرزاد جديد',
-        'description': 'Academic Arabic'
-      },
-      // English fonts
-      {
-        'name': 'Roboto',
-        'family': ReadingFontFamily.roboto,
-        'preview': 'The quick brown fox',
-        'description': 'Modern Sans'
-      },
-      {
-        'name': 'Open Sans',
-        'family': ReadingFontFamily.openSans,
-        'preview': 'The quick brown fox',
-        'description': 'Humanist Sans'
-      },
-      {
-        'name': 'Lato',
-        'family': ReadingFontFamily.lato,
-        'preview': 'The quick brown fox',
-        'description': 'Friendly Sans'
-      },
-      {
-        'name': 'Serif',
-        'family': ReadingFontFamily.serif,
-        'preview': 'The quick brown fox',
-        'description': 'Classic Serif'
       },
     ];
 
@@ -679,132 +642,158 @@ class _ReaderSettingsBottomSheetState extends ConsumerState<ReaderSettingsBottom
     );
   }
 
-  Widget _buildReadingTextPreview(ThemeData theme, ReadingSettingsState readingSettings) {
-    return Container(
-      padding: const EdgeInsets.all(24),
-      decoration: BoxDecoration(
-        color: theme.colorScheme.surface,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-          color: theme.colorScheme.outline.withValues(alpha: 0.15),
-          width: 1,
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: theme.colorScheme.shadow.withValues(alpha: 0.05),
-            blurRadius: 8,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
-      child: Column(
+  /// Build the reading experience section with toggles for new features
+  Widget _buildReadingExperienceSection(ThemeData theme, ReadingSettingsState readingSettings, ReadingSettingsNotifier readingSettingsNotifier) {
+    return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Row(
-          children: [
+        Text(
+          'Reading Experience',
+          style: GoogleFonts.inter(
+            fontSize: 18,
+            fontWeight: FontWeight.w600,
+            color: theme.colorScheme.onSurface,
+          ),
+        ),
+        const SizedBox(height: 20),
+        
+        // Page Flip Animation Toggle
+        _buildToggleCard(
+          title: 'Page Flip Animation',
+          description: 'Realistic 3D page turning effects',
+          icon: Icons.auto_stories_outlined,
+          isEnabled: readingSettings.pageFlipAnimationEnabled,
+          onToggle: (enabled) {
+            HapticFeedback.selectionClick();
+            readingSettingsNotifier.setPageFlipAnimationEnabled(enabled);
+          },
+          theme: theme,
+        ),
+        
+        const SizedBox(height: 16),
+        
+        // Focus Mode Toggle
+        _buildToggleCard(
+          title: 'Focus Mode',
+          description: 'Dim distractions and highlight active section',
+          icon: Icons.center_focus_strong_outlined,
+          isEnabled: readingSettings.focusModeEnabled,
+          onToggle: (enabled) {
+            HapticFeedback.selectionClick();
+            readingSettingsNotifier.setFocusModeEnabled(enabled);
+          },
+          theme: theme,
+        ),
+      ],
+    );
+  }
+
+  /// Build a toggle card for reading experience features
+  Widget _buildToggleCard({
+    required String title,
+    required String description,
+    required IconData icon,
+    required bool isEnabled,
+    required ValueChanged<bool> onToggle,
+    required ThemeData theme,
+  }) {
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: isEnabled 
+          ? theme.colorScheme.primary.withValues(alpha: 0.06)
+          : theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.4),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: isEnabled 
+            ? theme.colorScheme.primary.withValues(alpha: 0.2)
+            : theme.colorScheme.outline.withValues(alpha: 0.2),
+          width: 1,
+        ),
+          ),
+      child: Row(
+      children: [
+          // Icon
               Container(
-                width: 28,
-                height: 28,
+            width: 44,
+            height: 44,
                 decoration: BoxDecoration(
-                  color: theme.colorScheme.primary.withValues(alpha: 0.1),
-                  borderRadius: BorderRadius.circular(8),
+              color: isEnabled
+                ? theme.colorScheme.primary.withValues(alpha: 0.1)
+                : theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.1),
+              borderRadius: BorderRadius.circular(12),
                 ),
                 child: Icon(
-                  Icons.preview_rounded,
-                  size: 16,
-                  color: theme.colorScheme.primary,
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Text(
-                  'Live Preview',
-                  style: GoogleFonts.inter(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w600,
-                    color: theme.colorScheme.primary,
-                  ),
-                ),
-              ),
-              const SizedBox(width: 8),
-              Flexible(
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: theme.colorScheme.primaryContainer.withValues(alpha: 0.6),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Text(
-                    '${readingSettings.fontSize.size.round()}px • ${readingSettings.lineSpacing.toStringAsFixed(1)}x',
-                    style: GoogleFonts.inter(
-                      fontSize: 10,
-                      fontWeight: FontWeight.w600,
-                      color: theme.colorScheme.onPrimaryContainer,
+              icon,
+              color: isEnabled
+                ? theme.colorScheme.primary
+                : theme.colorScheme.onSurfaceVariant,
+              size: 22,
                     ),
-                    overflow: TextOverflow.ellipsis,
-                    maxLines: 1,
-                  ),
-                ),
-              ),
-          ],
-        ),
-          const SizedBox(height: 20),
+          ),
           
-          // Urdu text preview
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.3),
-              borderRadius: BorderRadius.circular(12),
-            ),
+          const SizedBox(width: 16),
+          
+          // Text content
+          Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'اسلام علیکم ورحمۃ اللہ وبرکاتہ',
-                  style: TextStyle(
-                    fontFamily: readingSettings.fontFamily.fontFamily,
-                    fontSize: readingSettings.fontSize.size,
-                    height: readingSettings.lineSpacing,
+                  title,
+                  style: GoogleFonts.inter(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w600,
                     color: theme.colorScheme.onSurface,
-                    fontWeight: FontWeight.w400,
                   ),
-                  textDirection: TextDirection.rtl,
                 ),
-                const SizedBox(height: 12),
+                const SizedBox(height: 4),
                 Text(
-                  'یہ متن آپ کی موجودہ ترتیبات کے ساتھ کیسا نظر آئے گا۔',
-                  style: TextStyle(
-                    fontFamily: readingSettings.fontFamily.fontFamily,
-                    fontSize: readingSettings.fontSize.size - 1,
-                    height: readingSettings.lineSpacing,
-                    color: theme.colorScheme.onSurface.withValues(alpha: 0.8),
-                    fontWeight: FontWeight.w400,
+                  description,
+                  style: GoogleFonts.inter(
+                    fontSize: 14,
+                    color: theme.colorScheme.onSurfaceVariant,
+                    height: 1.3,
                   ),
-                  textDirection: TextDirection.rtl,
                 ),
               ],
             ),
           ),
           
-        const SizedBox(height: 12),
+          const SizedBox(width: 16),
           
-          // English text preview
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.all(16),
+          // Toggle switch
+          GestureDetector(
+            onTap: () => onToggle(!isEnabled),
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 200),
+              width: 56,
+              height: 32,
             decoration: BoxDecoration(
-              color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.3),
-              borderRadius: BorderRadius.circular(12),
+                color: isEnabled
+                  ? theme.colorScheme.primary
+                  : theme.colorScheme.outline.withValues(alpha: 0.3),
+                borderRadius: BorderRadius.circular(16),
             ),
-            child: Text(
-              'This is how English text will appear with your current settings.',
-              style: GoogleFonts.inter(
-                fontSize: readingSettings.fontSize.size - 1,
-                height: readingSettings.lineSpacing,
-                color: theme.colorScheme.onSurface.withValues(alpha: 0.7),
-                fontWeight: FontWeight.w400,
+              child: AnimatedAlign(
+                duration: const Duration(milliseconds: 200),
+                alignment: isEnabled ? Alignment.centerRight : Alignment.centerLeft,
+                child: Container(
+                  width: 28,
+                  height: 28,
+                  margin: const EdgeInsets.all(2),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(14),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withValues(alpha: 0.1),
+                        blurRadius: 4,
+                        offset: const Offset(0, 2),
+                      ),
+                    ],
+                  ),
+                ),
               ),
             ),
         ),
@@ -1094,4 +1083,5 @@ class _SliderContainerState extends State<SliderContainer> {
       // widget.onChanged(newValue);
     }
   }
+
 }

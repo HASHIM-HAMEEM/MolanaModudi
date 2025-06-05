@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import '../../../../core/themes/app_color.dart';
 import '../../../../features/videos/presentation/providers/video_providers.dart';
 import '../../../../features/videos/domain/entities/playlist_entity.dart';
@@ -70,11 +71,11 @@ class VideoLecturesSection extends ConsumerWidget {
             ],
           ),
         ),
-        const SizedBox(height: 20),
+        const SizedBox(height: 12),
         
         // Playlists display
         SizedBox(
-          height: 240,
+          height: 220, // Reduced height
           child: _buildPlaylistContent(context, playlistState, isDark, isSepia, textColor, primaryGreen),
         ),
       ],
@@ -105,9 +106,9 @@ class VideoLecturesSection extends ConsumerWidget {
                 padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
                   color: isDark 
-                      ? AppColor.surfaceDark.withOpacity(0.5)
+                      ? AppColor.surfaceDark.withValues(alpha: 0.5)
                       : isSepia 
-                          ? AppColor.surfaceSepia.withOpacity(0.5)
+                          ? AppColor.surfaceSepia.withValues(alpha: 0.5)
                           : const Color(0xFFF7F7F7),
                   borderRadius: BorderRadius.circular(16),
                 ),
@@ -151,9 +152,9 @@ class VideoLecturesSection extends ConsumerWidget {
                 padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
                   color: isDark 
-                      ? AppColor.surfaceDark.withOpacity(0.5)
+                      ? AppColor.surfaceDark.withValues(alpha: 0.5)
                       : isSepia 
-                          ? AppColor.surfaceSepia.withOpacity(0.5)
+                          ? AppColor.surfaceSepia.withValues(alpha: 0.5)
                           : const Color(0xFFF7F7F7),
                   borderRadius: BorderRadius.circular(16),
                 ),
@@ -213,7 +214,7 @@ class VideoLecturesSection extends ConsumerWidget {
                       borderRadius: BorderRadius.circular(16),
                       boxShadow: isDark ? [] : [
                         BoxShadow(
-                          color: Colors.black.withOpacity(0.08),
+                          color: Colors.black.withValues(alpha: 0.08),
                           blurRadius: 16,
                           offset: const Offset(0, 6),
                         ),
@@ -224,12 +225,29 @@ class VideoLecturesSection extends ConsumerWidget {
                         ClipRRect(
                           borderRadius: BorderRadius.circular(16),
                           child: playlist.thumbnailUrl != null && playlist.thumbnailUrl!.isNotEmpty
-                              ? Image.network(
-                                  playlist.thumbnailUrl!,
+                              ? CachedNetworkImage(
+                                  imageUrl: playlist.thumbnailUrl!,
                                   height: 120,
                                   width: 200,
                                   fit: BoxFit.cover,
-                                  errorBuilder: (context, error, stackTrace) {
+                                  cacheKey: 'playlist_thumb_${playlist.id}',
+                                  placeholder: (context, url) => Container(
+                                    height: 120,
+                                    width: 200,
+                                    color: isDark 
+                                        ? AppColor.surfaceDark 
+                                        : isSepia 
+                                            ? AppColor.surfaceSepia 
+                                            : const Color(0xFFF7F7F7),
+                                    child: const Center(
+                                      child: SizedBox(
+                                        width: 24,
+                                        height: 24,
+                                        child: CircularProgressIndicator(strokeWidth: 2),
+                                      ),
+                                    ),
+                                  ),
+                                  errorWidget: (context, url, error) {
                                     return Container(
                                       height: 120,
                                       width: 200,
@@ -279,7 +297,7 @@ class VideoLecturesSection extends ConsumerWidget {
                             child: Container(
                               padding: const EdgeInsets.all(12),
                               decoration: BoxDecoration(
-                                color: Colors.black.withOpacity(0.6),
+                                color: Colors.black.withValues(alpha: 0.6),
                                 borderRadius: BorderRadius.circular(12),
                               ),
                               child: const Icon(
@@ -297,7 +315,7 @@ class VideoLecturesSection extends ConsumerWidget {
                           child: Container(
                             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                             decoration: BoxDecoration(
-                              color: Colors.black.withOpacity(0.7),
+                              color: Colors.black.withValues(alpha: 0.7),
                               borderRadius: BorderRadius.circular(8),
                             ),
                             child: Text(

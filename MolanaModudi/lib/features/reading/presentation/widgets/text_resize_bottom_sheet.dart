@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'package:modudi/features/settings/presentation/providers/settings_provider.dart';
+import 'package:modudi/features/reading/presentation/providers/reading_settings_provider.dart';
 
 class ReadingSettingsBottomSheet extends ConsumerStatefulWidget {
   const ReadingSettingsBottomSheet({super.key});
@@ -19,8 +19,8 @@ class _ReadingSettingsBottomSheetState extends ConsumerState<ReadingSettingsBott
   @override
   void initState() {
     super.initState();
-    final settings = ref.read(settingsProvider);
-    _previewFontSize = settings.fontSize.size;
+    final readingSettings = ref.read(readingSettingsProvider);
+    _previewFontSize = readingSettings.fontSize.size;
     _previewLineHeight = 1.5; // Default line height
     _tabController = TabController(length: 4, vsync: this);
   }
@@ -35,8 +35,8 @@ class _ReadingSettingsBottomSheetState extends ConsumerState<ReadingSettingsBott
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final colors = theme.colorScheme;
-    final settings = ref.watch(settingsProvider);
-    final settingsNotifier = ref.read(settingsProvider.notifier);
+    final readingSettings = ref.watch(readingSettingsProvider);
+    final readingSettingsNotifier = ref.read(readingSettingsProvider.notifier);
 
     return DraggableScrollableSheet(
       initialChildSize: 0.7,
@@ -130,7 +130,7 @@ class _ReadingSettingsBottomSheetState extends ConsumerState<ReadingSettingsBott
                   controller: _tabController,
                   children: [
                     _buildTextSettingsTab(colors),
-                    _buildThemeSettingsTab(colors, settings, settingsNotifier),
+                    _buildThemeSettingsTab(colors, readingSettings, readingSettingsNotifier),
                     _buildBookmarksTab(colors),
                     _buildAIInsightsTab(colors),
                   ],
@@ -174,7 +174,7 @@ class _ReadingSettingsBottomSheetState extends ConsumerState<ReadingSettingsBott
     );
   }
 
-  Widget _buildThemeSettingsTab(ColorScheme colors, SettingsState settings, SettingsNotifier settingsNotifier) {
+  Widget _buildThemeSettingsTab(ColorScheme colors, ReadingSettingsState readingSettings, ReadingSettingsNotifier readingSettingsNotifier) {
     return SingleChildScrollView(
       padding: const EdgeInsets.all(24),
       child: Column(
@@ -184,7 +184,7 @@ class _ReadingSettingsBottomSheetState extends ConsumerState<ReadingSettingsBott
           const SizedBox(height: 16),
           
           // Theme options
-          ...AppThemeMode.values.map((themeMode) {
+          ...ReadingThemeMode.values.map((themeMode) {
             return Container(
               margin: const EdgeInsets.only(bottom: 12),
               child: Material(
@@ -192,28 +192,28 @@ class _ReadingSettingsBottomSheetState extends ConsumerState<ReadingSettingsBott
                 child: InkWell(
                   onTap: () {
                     HapticFeedback.selectionClick();
-                    settingsNotifier.setThemeMode(themeMode);
+                    readingSettingsNotifier.setReadingThemeMode(themeMode);
                   },
                   borderRadius: BorderRadius.circular(12),
                   child: Container(
                     padding: const EdgeInsets.all(16),
                     decoration: BoxDecoration(
-                      color: settings.themeMode == themeMode 
+                      color: readingSettings.themeMode == themeMode 
                         ? colors.primary.withValues(alpha: 0.1)
                         : colors.surfaceContainerHighest.withValues(alpha: 0.3),
                       borderRadius: BorderRadius.circular(12),
                       border: Border.all(
-                        color: settings.themeMode == themeMode 
+                        color: readingSettings.themeMode == themeMode 
                           ? colors.primary 
                           : colors.outline.withValues(alpha: 0.2),
-                        width: settings.themeMode == themeMode ? 2 : 1,
+                        width: readingSettings.themeMode == themeMode ? 2 : 1,
                       ),
                     ),
                     child: Row(
                       children: [
                         Icon(
                           _getThemeIcon(themeMode),
-                          color: settings.themeMode == themeMode 
+                          color: readingSettings.themeMode == themeMode 
                             ? colors.primary 
                             : colors.onSurfaceVariant,
                           size: 24,
@@ -241,7 +241,7 @@ class _ReadingSettingsBottomSheetState extends ConsumerState<ReadingSettingsBott
                             ],
                           ),
                         ),
-                        if (settings.themeMode == themeMode)
+                        if (readingSettings.themeMode == themeMode)
                           Icon(Icons.check_circle_rounded, color: colors.primary, size: 20),
                       ],
                     ),
@@ -358,42 +358,42 @@ class _ReadingSettingsBottomSheetState extends ConsumerState<ReadingSettingsBott
     );
   }
 
-  IconData _getThemeIcon(AppThemeMode themeMode) {
+  IconData _getThemeIcon(ReadingThemeMode themeMode) {
     switch (themeMode) {
-      case AppThemeMode.light:
+      case ReadingThemeMode.light:
         return Icons.light_mode_rounded;
-      case AppThemeMode.dark:
+      case ReadingThemeMode.dark:
         return Icons.dark_mode_rounded;
-      case AppThemeMode.sepia:
+      case ReadingThemeMode.sepia:
         return Icons.auto_stories_rounded;
-      case AppThemeMode.system:
+      case ReadingThemeMode.system:
         return Icons.brightness_auto_rounded;
     }
   }
 
-  String _getThemeTitle(AppThemeMode themeMode) {
+  String _getThemeTitle(ReadingThemeMode themeMode) {
     switch (themeMode) {
-      case AppThemeMode.light:
+      case ReadingThemeMode.light:
         return 'Light Mode';
-      case AppThemeMode.dark:
+      case ReadingThemeMode.dark:
         return 'Dark Mode';
-      case AppThemeMode.sepia:
+      case ReadingThemeMode.sepia:
         return 'Sepia Mode';
-      case AppThemeMode.system:
+      case ReadingThemeMode.system:
         return 'System Default';
     }
   }
 
-  String _getThemeDescription(AppThemeMode themeMode) {
+  String _getThemeDescription(ReadingThemeMode themeMode) {
     switch (themeMode) {
-      case AppThemeMode.light:
-        return 'Clean and bright interface';
-      case AppThemeMode.dark:
-        return 'Easy on the eyes in low light';
-      case AppThemeMode.sepia:
+      case ReadingThemeMode.light:
+        return 'Clean and bright interface for reading';
+      case ReadingThemeMode.dark:
+        return 'Easy on the eyes in low light while reading';
+      case ReadingThemeMode.sepia:
         return 'Warm, paper-like reading experience';
-      case AppThemeMode.system:
-        return 'Follows your device settings';
+      case ReadingThemeMode.system:
+        return 'Follows your global app theme setting';
     }
   }
 
@@ -435,7 +435,7 @@ class _ReadingSettingsBottomSheetState extends ConsumerState<ReadingSettingsBott
                 },
                 onChangeEnd: (value) {
                   // Update actual settings when dragging ends
-                  ref.read(settingsProvider.notifier).setFontSizeFromDouble(value);
+                  ref.read(readingSettingsProvider.notifier).setFontSizeFromDouble(value);
                 },
               ),
             ),

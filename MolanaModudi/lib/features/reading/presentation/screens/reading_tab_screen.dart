@@ -426,6 +426,7 @@ class _ReadingTabScreenState extends ConsumerState<ReadingTabScreen> with Single
                   height: 200,
                   width: 120,
                   fit: BoxFit.cover,
+                  cacheKey: 'reading_book_${book.id}',
                   placeholder: (context, url) => ShimmerPlaceholder(
                     child: Container(
                     height: 200,
@@ -631,6 +632,7 @@ class _ReadingTabScreenState extends ConsumerState<ReadingTabScreen> with Single
                   height: 65,
                   width: 45,
                   fit: BoxFit.cover,
+                  cacheKey: 'history_book_${book.id}',
                   placeholder: (context, url) => ShimmerPlaceholder(
                     child: Container(
                     height: 65,

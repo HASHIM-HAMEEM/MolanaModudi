@@ -1,5 +1,17 @@
 import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
 import 'app_color.dart';
+
+/// Extension for applying app-wide font scaling
+/// This only affects app UI, not reading content
+extension AppFontScaling on TextStyle {
+  /// Apply app font scale to this text style
+  TextStyle withAppFontScale(double scale) {
+    return copyWith(
+      fontSize: (fontSize ?? 14.0) * scale,
+    );
+  }
+}
 
 /// Theme data helper to create consistent themes throughout the app
 class AppTheme {
@@ -126,53 +138,55 @@ class AppTheme {
     ),
     
     // Define text themes for consistent typography
-    textTheme: TextTheme(
-      // Large titles like page headers
-      headlineLarge: TextStyle(
-        fontSize: 24,
-        fontWeight: FontWeight.bold,
-        color: AppColor.textPrimary,
-      ),
-      // Section headers
-      titleLarge: TextStyle(
-        fontSize: 18,
-        fontWeight: FontWeight.bold,
-        color: AppColor.textPrimary,
-      ),
-      // Item titles
-      titleMedium: TextStyle(
-        fontSize: 16,
-        fontWeight: FontWeight.w500,
-        color: AppColor.textPrimary,
-      ),
-      // Smaller titles
-      titleSmall: TextStyle(
-        fontSize: 14,
-        fontWeight: FontWeight.w500,
-        color: AppColor.textPrimary,
-      ),
-      // Body text
-      bodyLarge: TextStyle(
-        fontSize: 16,
-        color: AppColor.textPrimary,
-      ),
-      bodyMedium: TextStyle(
-        fontSize: 14,
-        color: AppColor.textPrimary,
-      ),
-      bodySmall: TextStyle(
-        fontSize: 12,
-        color: AppColor.textSecondary,
-      ),
-      // Labels
-      labelMedium: TextStyle(
-        fontSize: 12,
-        fontWeight: FontWeight.w500,
-        color: AppColor.textSecondary,
-      ),
-      labelSmall: TextStyle(
-        fontSize: 10,
-        color: AppColor.textLight,
+    textTheme: GoogleFonts.interTextTheme(
+      TextTheme(
+        // Large titles like page headers
+        headlineLarge: TextStyle(
+          fontSize: 24,
+          fontWeight: FontWeight.bold,
+          color: AppColor.textPrimary,
+        ),
+        // Section headers
+        titleLarge: TextStyle(
+          fontSize: 18,
+          fontWeight: FontWeight.bold,
+          color: AppColor.textPrimary,
+        ),
+        // Item titles
+        titleMedium: TextStyle(
+          fontSize: 16,
+          fontWeight: FontWeight.w500,
+          color: AppColor.textPrimary,
+        ),
+        // Smaller titles
+        titleSmall: TextStyle(
+          fontSize: 14,
+          fontWeight: FontWeight.w500,
+          color: AppColor.textPrimary,
+        ),
+        // Body text
+        bodyLarge: TextStyle(
+          fontSize: 16,
+          color: AppColor.textPrimary,
+        ),
+        bodyMedium: TextStyle(
+          fontSize: 14,
+          color: AppColor.textPrimary,
+        ),
+        bodySmall: TextStyle(
+          fontSize: 12,
+          color: AppColor.textSecondary,
+        ),
+        // Labels
+        labelMedium: TextStyle(
+          fontSize: 12,
+          fontWeight: FontWeight.w500,
+          color: AppColor.textSecondary,
+        ),
+        labelSmall: TextStyle(
+          fontSize: 10,
+          color: AppColor.textLight,
+        ),
       ),
     ),
   );
@@ -281,47 +295,49 @@ class AppTheme {
       circularTrackColor: AppColor.progressBackgroundDark,
     ),
     
-    textTheme: TextTheme(
-      headlineLarge: TextStyle(
-        fontSize: 24,
-        fontWeight: FontWeight.bold,
-        color: AppColor.textPrimaryDark,
-      ),
-      titleLarge: TextStyle(
-        fontSize: 18,
-        fontWeight: FontWeight.bold,
-        color: AppColor.textPrimaryDark,
-      ),
-      titleMedium: TextStyle(
-        fontSize: 16,
-        fontWeight: FontWeight.w500,
-        color: AppColor.textPrimaryDark,
-      ),
-      titleSmall: TextStyle(
-        fontSize: 14,
-        fontWeight: FontWeight.w500,
-        color: AppColor.textPrimaryDark,
-      ),
-      bodyLarge: TextStyle(
-        fontSize: 16,
-        color: AppColor.textPrimaryDark,
-      ),
-      bodyMedium: TextStyle(
-        fontSize: 14,
-        color: AppColor.textPrimaryDark,
-      ),
-      bodySmall: TextStyle(
-        fontSize: 12,
-        color: AppColor.textSecondaryDark,
-      ),
-      labelMedium: TextStyle(
-        fontSize: 12,
-        fontWeight: FontWeight.w500,
-        color: AppColor.textSecondaryDark,
-      ),
-      labelSmall: TextStyle(
-        fontSize: 10,
-        color: AppColor.textLightDark,
+    textTheme: GoogleFonts.interTextTheme(
+      TextTheme(
+        headlineLarge: TextStyle(
+          fontSize: 24,
+          fontWeight: FontWeight.bold,
+          color: AppColor.textPrimaryDark,
+        ),
+        titleLarge: TextStyle(
+          fontSize: 18,
+          fontWeight: FontWeight.bold,
+          color: AppColor.textPrimaryDark,
+        ),
+        titleMedium: TextStyle(
+          fontSize: 16,
+          fontWeight: FontWeight.w500,
+          color: AppColor.textPrimaryDark,
+        ),
+        titleSmall: TextStyle(
+          fontSize: 14,
+          fontWeight: FontWeight.w500,
+          color: AppColor.textPrimaryDark,
+        ),
+        bodyLarge: TextStyle(
+          fontSize: 16,
+          color: AppColor.textPrimaryDark,
+        ),
+        bodyMedium: TextStyle(
+          fontSize: 14,
+          color: AppColor.textPrimaryDark,
+        ),
+        bodySmall: TextStyle(
+          fontSize: 12,
+          color: AppColor.textSecondaryDark,
+        ),
+        labelMedium: TextStyle(
+          fontSize: 12,
+          fontWeight: FontWeight.w500,
+          color: AppColor.textSecondaryDark,
+        ),
+        labelSmall: TextStyle(
+          fontSize: 10,
+          color: AppColor.textLightDark,
+        ),
       ),
     ),
   );
@@ -357,44 +373,123 @@ class AppTheme {
         elevation: 0,
       ),
       
-      textTheme: TextTheme(
-        headlineLarge: TextStyle(
-          fontSize: 24,
-          fontWeight: FontWeight.bold,
-          color: AppColor.textPrimarySepia,
+      textTheme: GoogleFonts.crimsonTextTextTheme(
+        TextTheme(
+          headlineLarge: TextStyle(
+            fontSize: 24,
+            fontWeight: FontWeight.bold,
+            color: AppColor.textPrimarySepia,
+          ),
+          titleLarge: TextStyle(
+            fontSize: 18,
+            fontWeight: FontWeight.bold,
+            color: AppColor.textPrimarySepia,
+          ),
+          titleMedium: TextStyle(
+            fontSize: 16,
+            fontWeight: FontWeight.w500,
+            color: AppColor.textPrimarySepia,
+          ),
+          titleSmall: TextStyle(
+            fontSize: 14,
+            fontWeight: FontWeight.w500,
+            color: AppColor.textPrimarySepia,
+          ),
+          bodyLarge: TextStyle(
+            fontSize: 16,
+            color: AppColor.textPrimarySepia,
+          ),
+          bodyMedium: TextStyle(
+            fontSize: 14,
+            color: AppColor.textPrimarySepia,
+          ),
+          bodySmall: TextStyle(
+            fontSize: 12,
+            color: AppColor.textSecondarySepia,
+          ),
+          labelMedium: TextStyle(
+            fontSize: 12,
+            fontWeight: FontWeight.w500,
+            color: AppColor.textSecondarySepia,
+          ),
+          labelSmall: TextStyle(
+            fontSize: 10,
+            color: AppColor.textSecondarySepia,
+          ),
         ),
-        titleLarge: TextStyle(
-          fontSize: 18,
-          fontWeight: FontWeight.bold,
-          color: AppColor.textPrimarySepia,
+      ),
+      
+      elevatedButtonTheme: ElevatedButtonThemeData(
+        style: ElevatedButton.styleFrom(
+          backgroundColor: AppColor.primarySepia,
+          foregroundColor: AppColor.textOnPrimarySepia,
+          elevation: 2,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(8),
+          ),
         ),
-        titleMedium: TextStyle(
-          fontSize: 16,
-          fontWeight: FontWeight.w500,
-          color: AppColor.textPrimarySepia,
+      ),
+      
+      filledButtonTheme: FilledButtonThemeData(
+        style: FilledButton.styleFrom(
+          backgroundColor: AppColor.primarySepia,
+          foregroundColor: AppColor.textOnPrimarySepia,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(8),
+          ),
         ),
-        titleSmall: TextStyle(
-          fontSize: 14,
-          fontWeight: FontWeight.w500,
-          color: AppColor.textPrimarySepia,
+      ),
+      
+      outlinedButtonTheme: OutlinedButtonThemeData(
+        style: OutlinedButton.styleFrom(
+          foregroundColor: AppColor.primarySepia,
+          side: BorderSide(color: AppColor.primarySepia),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(8),
+          ),
         ),
-        bodyLarge: TextStyle(
-          fontSize: 16,
-          color: AppColor.textPrimarySepia,
+      ),
+      
+      inputDecorationTheme: InputDecorationTheme(
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(8),
+          borderSide: BorderSide(color: AppColor.primarySepia.withValues(alpha: 0.3)),
         ),
-        bodyMedium: TextStyle(
-          fontSize: 14,
-          color: AppColor.textPrimarySepia,
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(8),
+          borderSide: BorderSide(color: AppColor.primarySepia.withValues(alpha: 0.3)),
         ),
-        bodySmall: TextStyle(
-          fontSize: 12,
-          color: AppColor.textSecondarySepia,
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(8),
+          borderSide: BorderSide(color: AppColor.primarySepia, width: 2),
         ),
-        labelMedium: TextStyle(
-          fontSize: 12,
-          fontWeight: FontWeight.w500,
-          color: AppColor.textSecondarySepia,
+        contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      ),
+      
+      chipTheme: ChipThemeData(
+        backgroundColor: AppColor.accentSepia.withValues(alpha: 0.2),
+        labelStyle: TextStyle(color: AppColor.primarySepia),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(20),
         ),
+      ),
+      
+      dividerTheme: DividerThemeData(
+        color: AppColor.primarySepia.withValues(alpha: 0.2),
+        thickness: 1,
+      ),
+      
+      bottomNavigationBarTheme: BottomNavigationBarThemeData(
+        backgroundColor: AppColor.surfaceSepia,
+        selectedItemColor: AppColor.primarySepia,
+        unselectedItemColor: AppColor.textSecondarySepia,
+        type: BottomNavigationBarType.fixed,
+      ),
+      
+      tabBarTheme: TabBarThemeData(
+        labelColor: AppColor.primarySepia,
+        unselectedLabelColor: AppColor.textSecondarySepia,
+        indicatorColor: AppColor.primarySepia,
       ),
     );
   }

@@ -5,6 +5,7 @@ import 'dart:async'; // Import for Completer
 import 'package:google_fonts/google_fonts.dart';
 
 import 'package:modudi/features/settings/presentation/providers/settings_provider.dart';
+import 'package:modudi/features/reading/presentation/providers/reading_settings_provider.dart';
 // Import widgets as they are created
 // Import Library Panel
 // Import shared models
@@ -327,39 +328,49 @@ class _ReadingScreenState extends ConsumerState<ReadingScreen> {
     // TODO: Persist setting via settingsProvider.notifier.setFontType(newFontType);
   }
 
-  // Get theme colors based on current theme
+  // Get theme colors based on reading-specific theme
   ColorScheme _getThemeColors() {
-    final settings = ref.watch(settingsProvider);
-    switch (settings.themeMode) {
-      case AppThemeMode.light:
+    final readingSettings = ref.watch(readingSettingsProvider);
+    switch (readingSettings.themeMode) {
+      case ReadingThemeMode.light:
         return const ColorScheme.light(
           primary: AppColor.primary,
           secondary: AppColor.accent,
           surface: AppColor.surface,
           onSurface: AppColor.textPrimary,
         );
-      case AppThemeMode.sepia:
+      case ReadingThemeMode.sepia:
         return const ColorScheme.light(
           primary: AppColor.primarySepia,
           secondary: AppColor.accentSepia,
           surface: AppColor.surfaceSepia,
           onSurface: AppColor.textPrimarySepia,
         );
-      case AppThemeMode.dark:
+      case ReadingThemeMode.dark:
         return const ColorScheme.dark(
           primary: AppColor.primaryDark,
           secondary: AppColor.accentDark,
           surface: AppColor.surfaceDark,
           onSurface: AppColor.textPrimaryDark,
         );
-      // Add default case for system theme
-      default:
+      case ReadingThemeMode.system:
+        // Use the current system theme
+        final brightness = WidgetsBinding.instance.platformDispatcher.platformBrightness;
+        if (brightness == Brightness.dark) {
+          return const ColorScheme.dark(
+            primary: AppColor.primaryDark,
+            secondary: AppColor.accentDark,
+            surface: AppColor.surfaceDark,
+            onSurface: AppColor.textPrimaryDark,
+          );
+        } else {
         return const ColorScheme.light(
           primary: AppColor.primary,
           secondary: AppColor.accent,
           surface: AppColor.surface,
           onSurface: AppColor.textPrimary,
         );
+        }
     }
   }
 
@@ -1823,24 +1834,24 @@ class _ReadingScreenState extends ConsumerState<ReadingScreen> {
                         theme,
                         'Light',
                         Icons.light_mode,
-                        ref.watch(settingsProvider).themeMode == AppThemeMode.light,
-                        () => ref.read(settingsProvider.notifier).setThemeMode(AppThemeMode.light),
+                        ref.watch(readingSettingsProvider).themeMode == ReadingThemeMode.light,
+                        () => ref.read(readingSettingsProvider.notifier).setReadingThemeMode(ReadingThemeMode.light),
                       ),
                       const SizedBox(width: 12),
                       _buildThemeOption(
                         theme,
                         'Dark',
                         Icons.dark_mode,
-                        ref.watch(settingsProvider).themeMode == AppThemeMode.dark,
-                        () => ref.read(settingsProvider.notifier).setThemeMode(AppThemeMode.dark),
+                        ref.watch(readingSettingsProvider).themeMode == ReadingThemeMode.dark,
+                        () => ref.read(readingSettingsProvider.notifier).setReadingThemeMode(ReadingThemeMode.dark),
                       ),
                       const SizedBox(width: 12),
                       _buildThemeOption(
                         theme,
                         'Sepia',
                         Icons.color_lens,
-                        ref.watch(settingsProvider).themeMode == AppThemeMode.sepia,
-                        () => ref.read(settingsProvider.notifier).setThemeMode(AppThemeMode.sepia),
+                        ref.watch(readingSettingsProvider).themeMode == ReadingThemeMode.sepia,
+                        () => ref.read(readingSettingsProvider.notifier).setReadingThemeMode(ReadingThemeMode.sepia),
                       ),
                     ],
                   ),

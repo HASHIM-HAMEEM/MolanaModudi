@@ -58,6 +58,49 @@ enum AppFontFamily {
   }
 }
 
+// Enum for app UI font sizes (affects app interface only, not reading content)
+enum AppFontSize {
+  extraSmall('Extra Small', 0.85),
+  small('Small', 0.9),
+  medium('Medium', 1.0),
+  large('Large', 1.1),
+  extraLarge('Extra Large', 1.2);
+  
+  final String displayName;
+  final double scale;
+  const AppFontSize(this.displayName, this.scale);
+  
+  // Helper method to get the next larger size
+  AppFontSize get larger {
+    switch (this) {
+      case AppFontSize.extraSmall:
+        return AppFontSize.small;
+      case AppFontSize.small:
+        return AppFontSize.medium;
+      case AppFontSize.medium:
+        return AppFontSize.large;
+      case AppFontSize.large:
+      case AppFontSize.extraLarge:
+        return AppFontSize.extraLarge;
+    }
+  }
+  
+  // Helper method to get the next smaller size
+  AppFontSize get smaller {
+    switch (this) {
+      case AppFontSize.extraSmall:
+      case AppFontSize.small:
+        return AppFontSize.extraSmall;
+      case AppFontSize.medium:
+        return AppFontSize.small;
+      case AppFontSize.large:
+        return AppFontSize.medium;
+      case AppFontSize.extraLarge:
+        return AppFontSize.large;
+    }
+  }
+}
+
 // Enum for supported languages
 enum AppLanguage {
   english('en', 'English'),
@@ -74,26 +117,31 @@ enum AppLanguage {
 class AppSettingsState {
   final AppThemeMode themeMode;
   final AppFontFamily appFontFamily;
+  final AppFontSize appFontSize;
   final AppLanguage language;
 
   const AppSettingsState({
     this.themeMode = AppThemeMode.system,
     this.appFontFamily = AppFontFamily.system,
+    this.appFontSize = AppFontSize.medium,
     this.language = AppLanguage.english,
   });
 
   // Helper properties
   ThemeMode get flutterThemeMode => themeMode.toThemeMode();
   bool get isSepia => themeMode == AppThemeMode.sepia;
+  double get fontScale => appFontSize.scale;
 
   AppSettingsState copyWith({
     AppThemeMode? themeMode,
     AppFontFamily? appFontFamily,
+    AppFontSize? appFontSize,
     AppLanguage? language,
   }) {
     return AppSettingsState(
       themeMode: themeMode ?? this.themeMode,
       appFontFamily: appFontFamily ?? this.appFontFamily,
+      appFontSize: appFontSize ?? this.appFontSize,
       language: language ?? this.language,
     );
   }
@@ -105,12 +153,13 @@ class AppSettingsState {
     return other is AppSettingsState &&
       other.themeMode == themeMode &&
       other.appFontFamily == appFontFamily &&
+      other.appFontSize == appFontSize &&
       other.language == language;
   }
 
   @override
   int get hashCode {
-    return Object.hash(themeMode, appFontFamily, language);
+    return Object.hash(themeMode, appFontFamily, appFontSize, language);
   }
 }
 
@@ -125,6 +174,7 @@ class AppSettingsNotifier extends StateNotifier<AppSettingsState> {
   // Keys for SharedPreferences (prefixed to avoid conflicts with reading settings)
   static const String _appThemeModeKey = 'app_themeMode';
   static const String _appFontFamilyKey = 'app_fontFamily';
+  static const String _appFontSizeKey = 'app_fontSize';
   static const String _appLanguageKey = 'app_language';
 
   Future<void> _loadSettings() async {
@@ -133,11 +183,13 @@ class AppSettingsNotifier extends StateNotifier<AppSettingsState> {
       
       final themeModeIndex = prefs.getInt(_appThemeModeKey) ?? AppThemeMode.system.index;
       final fontFamilyIndex = prefs.getInt(_appFontFamilyKey) ?? AppFontFamily.system.index;
+      final fontSizeIndex = prefs.getInt(_appFontSizeKey) ?? AppFontSize.medium.index;
       final languageIndex = prefs.getInt(_appLanguageKey) ?? AppLanguage.english.index;
       
       state = state.copyWith(
         themeMode: AppThemeMode.values[themeModeIndex.clamp(0, AppThemeMode.values.length - 1)],
         appFontFamily: AppFontFamily.values[fontFamilyIndex.clamp(0, AppFontFamily.values.length - 1)],
+        appFontSize: AppFontSize.values[fontSizeIndex.clamp(0, AppFontSize.values.length - 1)],
         language: AppLanguage.values[languageIndex.clamp(0, AppLanguage.values.length - 1)],
       );
       
@@ -178,6 +230,20 @@ class AppSettingsNotifier extends StateNotifier<AppSettingsState> {
     }
   }
   
+  Future<void> setAppFontSize(AppFontSize fontSize) async {
+    _log.info('Setting app font size to: $fontSize');
+    if (state.appFontSize == fontSize) return;
+    
+    try {
+      state = state.copyWith(appFontSize: fontSize);
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setInt(_appFontSizeKey, fontSize.index);
+      _log.info('App font size saved successfully');
+    } catch (e) {
+      _log.severe('Error setting app font size: $e');
+    }
+  }
+  
   Future<void> setLanguage(AppLanguage language) async {
     _log.info('Setting app language to: $language');
     if (state.language == language) {
@@ -199,15 +265,13 @@ class AppSettingsNotifier extends StateNotifier<AppSettingsState> {
   Future<void> resetToDefaults() async {
     _log.info('Resetting app settings to defaults');
     try {
-      const defaultState = AppSettingsState();
-      state = defaultState;
-      
+      state = const AppSettingsState();
       final prefs = await SharedPreferences.getInstance();
-      await prefs.setInt(_appThemeModeKey, defaultState.themeMode.index);
-      await prefs.setInt(_appFontFamilyKey, defaultState.appFontFamily.index);
-      await prefs.setInt(_appLanguageKey, defaultState.language.index);
-      
-      _log.info('App settings reset successfully');
+      await prefs.remove(_appThemeModeKey);
+      await prefs.remove(_appFontFamilyKey);
+      await prefs.remove(_appFontSizeKey);
+      await prefs.remove(_appLanguageKey);
+      _log.info('App settings reset to defaults successfully');
     } catch (e) {
       _log.severe('Error resetting app settings: $e');
     }

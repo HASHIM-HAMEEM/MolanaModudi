@@ -492,6 +492,7 @@ class VideoRepositoryImpl implements VideoRepository {
         'PLGlK3JqJXED9natBVnJAZ1-1PYyJ4DCup', // Khilaafat o Malookiat - Audiobook
         'PLGlK3JqJXED8A6gC3aEZkIlYekrm7jUB7', // Tafheem Ul Quran - Molana Moududi
         'PLGlK3JqJXED_kGKZDMOY3zlnbede4WjVt', // Molana Moududi - Audiobooks
+        'PLGlK3JqJXED8rfyxfkBCQc0yB4bT7D_PF', // Deeniyat
       ];
 
       List<PlaylistEntity> fetchedPlaylists = [];

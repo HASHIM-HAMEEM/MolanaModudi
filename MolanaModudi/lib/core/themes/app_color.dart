@@ -59,5 +59,7 @@ class AppColor {
   static const Color surfaceSepia = Color(0xFFFBF8F1);     // light cream - Sepia surface
   static const Color textPrimarySepia = Color(0xFF492C14); // dark brown - Sepia text
   static const Color textSecondarySepia = Color(0xFF6F5632); // medium brown - Sepia secondary text
-  static const Color textOnPrimarySepia = Color(0xFFFFF8EE); // off-white - Text on primary for sepia
+  static const Color textOnPrimarySepia = Color(0xFFFFF8EE);
+
+  static var surfaceLight; // off-white - Text on primary for sepia
 }

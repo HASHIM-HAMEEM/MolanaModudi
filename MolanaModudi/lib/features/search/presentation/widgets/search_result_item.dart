@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 
 import '../../domain/entities/search_result_entity.dart';
 
@@ -106,12 +107,21 @@ class SearchResultItem extends StatelessWidget {
         child: SizedBox(
           width: 60,
           height: 60,
-          child: Image.network(
-            result.imageUrl!,
+          child: CachedNetworkImage(
+            imageUrl: result.imageUrl!,
             fit: BoxFit.cover,
-            errorBuilder: (context, error, stackTrace) {
-              return _buildFallbackIcon(theme);
-            },
+            cacheKey: 'search_result_${result.id}',
+            placeholder: (context, url) => Container(
+              color: Colors.grey.shade200,
+              child: const Center(
+                child: SizedBox(
+                  width: 20,
+                  height: 20,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                ),
+              ),
+            ),
+            errorWidget: (context, url, error) => _buildFallbackIcon(theme),
           ),
         ),
       );

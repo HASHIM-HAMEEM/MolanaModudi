@@ -78,6 +78,16 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
   void dispose() {
     _controller.removeListener(_playerListener);
     _controller.dispose();
+    // Reset orientation when leaving video player
+    SystemChrome.setPreferredOrientations([
+      DeviceOrientation.portraitUp,
+      DeviceOrientation.portraitDown,
+      DeviceOrientation.landscapeLeft,
+      DeviceOrientation.landscapeRight,
+    ]);
+    // Reset system UI
+    SystemChrome.setEnabledSystemUIMode(SystemUiMode.manual, 
+      overlays: SystemUiOverlay.values);
     super.dispose();
   }
 
@@ -88,11 +98,22 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
 
     return YoutubePlayerBuilder(
       onExitFullScreen: () {
-        SystemChrome.setPreferredOrientations(DeviceOrientation.values);
+        // Allow all orientations when exiting fullscreen
+        SystemChrome.setPreferredOrientations([
+          DeviceOrientation.portraitUp,
+          DeviceOrientation.portraitDown,
+          DeviceOrientation.landscapeLeft,
+          DeviceOrientation.landscapeRight,
+        ]);
         SystemChrome.setEnabledSystemUIMode(SystemUiMode.manual, 
           overlays: SystemUiOverlay.values);
       },
       onEnterFullScreen: () {
+        // Allow landscape orientations for fullscreen video
+        SystemChrome.setPreferredOrientations([
+          DeviceOrientation.landscapeLeft,
+          DeviceOrientation.landscapeRight,
+        ]);
         SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
       },
       player: YoutubePlayer(

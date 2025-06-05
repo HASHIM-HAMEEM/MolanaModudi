@@ -8,7 +8,8 @@ import '../../../providers/reading_provider.dart';
 import '../../../providers/reading_settings_provider.dart';
 import '../../../../data/services/simple_bookmark_service.dart';
 import '../../../../data/services/ai_word_meaning_service.dart';
-import '../../../../../settings/presentation/providers/settings_provider.dart';
+import 'page_flip_widget.dart';
+import 'focus_mode_overlay.dart';
 
 // Provider for SimpleBookmarkService
 final simpleBookmarkServiceProvider = Provider((ref) => SimpleBookmarkService());
@@ -85,14 +86,16 @@ class _ReadingContentState extends ConsumerState<ReadingContent>
       }
     }
     
-    // Initialize heading keys for navigation
+    // Initialize heading keys for navigation with unique identifiers
     final allHeadings = widget.readingState.headings ?? [];
     for (var heading in allHeadings) {
       final headingId = heading.firestoreDocId.isNotEmpty 
         ? heading.firestoreDocId 
         : heading.id?.toString() ?? '';
-      if (headingId.isNotEmpty && !_headingKeys.containsKey(headingId)) {
-        _headingKeys[headingId] = GlobalKey();
+      final chapterId = heading.chapterId?.toString() ?? '';
+      final uniqueKey = '${chapterId}_$headingId';
+      if (headingId.isNotEmpty && !_headingKeys.containsKey(uniqueKey)) {
+        _headingKeys[uniqueKey] = GlobalKey();
       }
     }
     
@@ -284,13 +287,16 @@ class _ReadingContentState extends ConsumerState<ReadingContent>
   @override
   Widget build(BuildContext context) {
     final mainChapterKeys = widget.readingState.mainChapterKeys ?? [];
+    final readingSettings = ref.watch(readingSettingsProvider);
     
     if (mainChapterKeys.isEmpty) {
       return const Center(child: Text('No content available'));
     }
 
-    return PageView.builder(
+    // Wrap PageView with PageFlipWidget for enhanced animations
+    return PageFlipWidget(
       controller: _pageController,
+      enabled: readingSettings.pageFlipAnimationEnabled,
       onPageChanged: (index) {
         // Prevent duplicate navigation when PageView is being updated programmatically
         if (_isUpdatingProgrammatically) {
@@ -310,12 +316,12 @@ class _ReadingContentState extends ConsumerState<ReadingContent>
       itemCount: mainChapterKeys.length,
       itemBuilder: (context, index) {
         final chapterKey = mainChapterKeys[index];
-        return _buildChapterContent(context, ref, chapterKey, index);
+        return _buildChapterContent(context, ref, chapterKey, index, readingSettings);
       },
     );
   }
 
-  Widget _buildChapterContent(BuildContext context, WidgetRef ref, String chapterKey, int chapterIndex) {
+  Widget _buildChapterContent(BuildContext context, WidgetRef ref, String chapterKey, int chapterIndex, ReadingSettingsState readingSettings) {
     // Get headings for this chapter
     final allHeadings = widget.readingState.headings ?? [];
     final chapterHeadings = allHeadings.where((heading) => 
@@ -329,7 +335,7 @@ class _ReadingContentState extends ConsumerState<ReadingContent>
     final scrollController = _chapterScrollControllers[chapterKey];
     final colors = Theme.of(context).colorScheme;
 
-    return Scrollbar(
+    final content = Scrollbar(
       controller: scrollController,
       child: SingleChildScrollView(
         controller: scrollController,
@@ -366,6 +372,7 @@ class _ReadingContentState extends ConsumerState<ReadingContent>
               ref, 
               heading, 
               chapterKey,
+              readingSettings,
             )),
             
             // Bottom padding for last chapter
@@ -374,9 +381,20 @@ class _ReadingContentState extends ConsumerState<ReadingContent>
         ),
       ),
     );
+
+    // Wrap with FocusModeOverlay if focus mode is enabled
+    if (readingSettings.focusModeEnabled && scrollController != null) {
+      return FocusModeOverlay(
+        enabled: true,
+        scrollController: scrollController,
+        child: content,
+      );
+    }
+
+    return content;
   }
 
-  Widget _buildHeadingWidget(BuildContext context, WidgetRef ref, heading, String chapterKey) {
+  Widget _buildHeadingWidget(BuildContext context, WidgetRef ref, heading, String chapterKey, ReadingSettingsState readingSettings) {
     final colors = Theme.of(context).colorScheme;
     final headingId = heading.firestoreDocId.isNotEmpty 
       ? heading.firestoreDocId 
@@ -388,11 +406,17 @@ class _ReadingContentState extends ConsumerState<ReadingContent>
     final isRTL = bookLanguage == 'ur' || bookLanguage == 'ar';
     final textDirection = isRTL ? TextDirection.rtl : TextDirection.ltr;
     
-    // Use the global key for this heading if available
-    final headingKey = _headingKeys[headingId];
+    // Use the unique global key for this heading
+    final uniqueKey = '${chapterKey}_$headingId';
+    final headingKey = _headingKeys[uniqueKey];
     
     return Directionality(
       textDirection: textDirection,
+      child: GestureDetector(
+        onTap: readingSettings.focusModeEnabled ? () {
+          // Request focus on this section
+          _requestFocusOnSection(headingKey);
+        } : null,
       child: Container(
       key: headingKey,
         margin: const EdgeInsets.only(bottom: 32),
@@ -506,9 +530,16 @@ class _ReadingContentState extends ConsumerState<ReadingContent>
             ),
           ],
         ],
+          ),
         ),
       ),
     );
+  }
+
+  /// Request focus on a specific section (for focus mode)
+  void _requestFocusOnSection(GlobalKey? sectionKey) {
+    // Focus mode functionality simplified - no external control needed
+    // The overlay automatically manages focus areas
   }
 
   Widget _buildBookmarkButton(BuildContext context, WidgetRef ref, heading, String chapterKey) {

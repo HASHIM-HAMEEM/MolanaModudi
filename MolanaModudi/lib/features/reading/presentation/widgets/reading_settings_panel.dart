@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:modudi/features/settings/presentation/providers/settings_provider.dart';
+import 'package:modudi/features/reading/presentation/providers/reading_settings_provider.dart';
 import 'package:logging/logging.dart'; // Import logger
 
 class ReadingSettingsPanel extends ConsumerStatefulWidget {
@@ -58,9 +58,9 @@ class _ReadingSettingsPanelState extends ConsumerState<ReadingSettingsPanel> wit
 
   @override
   Widget build(BuildContext context) {
-    final settingsState = ref.watch(settingsProvider);
-    _log.info('Building ReadingSettingsPanel. Current themeMode state: ${settingsState.themeMode}'); // Log build
-    final settingsNotifier = ref.read(settingsProvider.notifier);
+    final readingSettings = ref.watch(readingSettingsProvider);
+    _log.info('Building ReadingSettingsPanel. Current themeMode state: ${readingSettings.themeMode}'); // Log build
+    final readingSettingsNotifier = ref.read(readingSettingsProvider.notifier);
     final theme = Theme.of(context);
     final colors = theme.colorScheme;
     final size = MediaQuery.of(context).size;
@@ -140,10 +140,10 @@ class _ReadingSettingsPanelState extends ConsumerState<ReadingSettingsPanel> wit
                         controller: _tabController,
                         children: [
                           // Appearance Tab
-                          _buildAppearanceTab(theme, settingsState, settingsNotifier),
+                          _buildAppearanceTab(theme, readingSettings, readingSettingsNotifier),
                           
                           // Text Options Tab - Enhanced with font selection
-                          _buildEnhancedTextOptionsTab(theme, settingsState, settingsNotifier),
+                          _buildEnhancedTextOptionsTab(theme, readingSettings, readingSettingsNotifier),
                         ],
                       ),
                     ),
@@ -158,7 +158,7 @@ class _ReadingSettingsPanelState extends ConsumerState<ReadingSettingsPanel> wit
   }
 
   // Appearance Tab Content
-  Widget _buildAppearanceTab(ThemeData theme, SettingsState settingsState, SettingsNotifier settingsNotifier) {
+  Widget _buildAppearanceTab(ThemeData theme, ReadingSettingsState readingSettings, ReadingSettingsNotifier readingSettingsNotifier) {
     return SingleChildScrollView(
       child: Padding(
         padding: const EdgeInsets.all(24.0),
@@ -189,40 +189,40 @@ class _ReadingSettingsPanelState extends ConsumerState<ReadingSettingsPanel> wit
                   theme, 
                   'Light', 
                   Icons.wb_sunny_outlined,
-                  settingsState.themeMode == AppThemeMode.light,
+                  readingSettings.themeMode == ReadingThemeMode.light,
                   () {
-                    _log.info('Light theme tapped - Attempting to apply Light theme'); 
-                    settingsNotifier.setThemeMode(AppThemeMode.light);
+                    _log.info('Light theme tapped - Attempting to apply Light reading theme'); 
+                    readingSettingsNotifier.setReadingThemeMode(ReadingThemeMode.light);
                   },
                 ),
                 _buildDebugThemeCard(
                   theme, 
                   'Dark', 
                   Icons.nightlight_outlined,
-                  settingsState.themeMode == AppThemeMode.dark,
+                  readingSettings.themeMode == ReadingThemeMode.dark,
                   () {
-                    _log.info('Dark theme tapped - Attempting to apply Dark theme'); 
-                    settingsNotifier.setThemeMode(AppThemeMode.dark);
+                    _log.info('Dark theme tapped - Attempting to apply Dark reading theme'); 
+                    readingSettingsNotifier.setReadingThemeMode(ReadingThemeMode.dark);
                   },
                 ),
                 _buildDebugThemeCard(
                   theme, 
                   'Sepia', 
                   Icons.color_lens_outlined,
-                  settingsState.themeMode == AppThemeMode.sepia,
+                  readingSettings.themeMode == ReadingThemeMode.sepia,
                   () {
-                    _log.info('Sepia theme tapped - Attempting to apply Sepia theme'); 
-                    settingsNotifier.setThemeMode(AppThemeMode.sepia);
+                    _log.info('Sepia theme tapped - Attempting to apply Sepia reading theme'); 
+                    readingSettingsNotifier.setReadingThemeMode(ReadingThemeMode.sepia);
                   },
                 ),
                 _buildDebugThemeCard(
                   theme, 
                   'Auto', 
                   Icons.brightness_auto_outlined,
-                  settingsState.themeMode == AppThemeMode.system,
+                  readingSettings.themeMode == ReadingThemeMode.system,
                   () {
-                    _log.info('Auto theme tapped - Attempting to apply Auto theme'); 
-                    settingsNotifier.setThemeMode(AppThemeMode.system);
+                    _log.info('Auto theme tapped - Attempting to apply Auto reading theme'); 
+                    readingSettingsNotifier.setReadingThemeMode(ReadingThemeMode.system);
                   },
                 ),
               ],
@@ -332,7 +332,7 @@ class _ReadingSettingsPanelState extends ConsumerState<ReadingSettingsPanel> wit
   }
 
   // Text Options Tab Content - Enhanced with font selection
-  Widget _buildEnhancedTextOptionsTab(ThemeData theme, SettingsState settingsState, SettingsNotifier settingsNotifier) {
+  Widget _buildEnhancedTextOptionsTab(ThemeData theme, ReadingSettingsState readingSettings, ReadingSettingsNotifier readingSettingsNotifier) {
     return SingleChildScrollView(
       padding: const EdgeInsets.all(24.0),
       child: Column(
@@ -343,7 +343,7 @@ class _ReadingSettingsPanelState extends ConsumerState<ReadingSettingsPanel> wit
           // Font Family Selection
           _buildSectionTitle(theme, 'Font Family'),
           const SizedBox(height: 16),
-          _buildFontFamilySelection(theme, settingsState, settingsNotifier),
+          _buildFontFamilySelection(theme, readingSettings, readingSettingsNotifier),
           
           const SizedBox(height: 32),
           
@@ -352,16 +352,16 @@ class _ReadingSettingsPanelState extends ConsumerState<ReadingSettingsPanel> wit
             theme,
             'Font Size',
             Icons.format_size,
-            settingsState.fontSize.size,
+            readingSettings.fontSize.size,
             (value) {
               // Use the new fromSize method for more accurate font size setting
-              final newSize = FontSize.fromSize(value);
-              settingsNotifier.setFontSize(newSize);
+              final newSize = ReadingFontSize.fromSize(value);
+              readingSettingsNotifier.setFontSize(newSize);
             },
             12.0,
             28.0,
             16,
-            '${settingsState.fontSize.size.round()}px',
+            '${readingSettings.fontSize.size.round()}px',
           ),
           
           const SizedBox(height: 32),
@@ -371,18 +371,18 @@ class _ReadingSettingsPanelState extends ConsumerState<ReadingSettingsPanel> wit
             theme,
             'Line Spacing',
             Icons.format_line_spacing,
-            settingsState.lineSpacing,
-            (value) => settingsNotifier.setLineSpacing(value),
+            readingSettings.lineSpacing,
+            (value) => readingSettingsNotifier.setLineSpacing(value),
             1.0,
             2.5,
             15,
-            '${settingsState.lineSpacing.toStringAsFixed(1)}x',
+            '${readingSettings.lineSpacing.toStringAsFixed(1)}x',
           ),
           
           const SizedBox(height: 32),
           
           // Font preview
-          _buildFontPreview(theme, settingsState),
+          _buildFontPreview(theme, readingSettings),
           
           const SizedBox(height: 24),
         ],
@@ -400,7 +400,7 @@ class _ReadingSettingsPanelState extends ConsumerState<ReadingSettingsPanel> wit
     );
   }
 
-  Widget _buildFontFamilySelection(ThemeData theme, SettingsState settingsState, SettingsNotifier settingsNotifier) {
+  Widget _buildFontFamilySelection(ThemeData theme, ReadingSettingsState readingSettings, ReadingSettingsNotifier readingSettingsNotifier) {
     return Column(
         children: [
         // Urdu Fonts Row
@@ -413,8 +413,8 @@ class _ReadingSettingsPanelState extends ConsumerState<ReadingSettingsPanel> wit
                 'نوٹو نستعلیق',
                 'NotoNastaliqUrdu',
                 'NotoNastaliqUrdu',
-                settingsState,
-                settingsNotifier,
+                readingSettings,
+                readingSettingsNotifier,
               ),
               ),
             const SizedBox(width: 12),
@@ -425,8 +425,8 @@ class _ReadingSettingsPanelState extends ConsumerState<ReadingSettingsPanel> wit
                 'جمیل نوری نستعلیق ریگولر',
                 'JameelNooriNastaleeqRegular',
                 'JameelNooriNastaleeqRegular',
-                settingsState,
-                settingsNotifier,
+                readingSettings,
+                readingSettingsNotifier,
             ),
           ),
         ],
@@ -439,8 +439,8 @@ class _ReadingSettingsPanelState extends ConsumerState<ReadingSettingsPanel> wit
           'نوتو نسخ العربية',
           'NotoNaskhArabic',
           'NotoNaskhArabic',
-          settingsState,
-          settingsNotifier,
+          readingSettings,
+          readingSettingsNotifier,
             ),
       ],
     );
@@ -452,10 +452,10 @@ class _ReadingSettingsPanelState extends ConsumerState<ReadingSettingsPanel> wit
     String preview,
     String fontFamily,
     String fontKey,
-    SettingsState settingsState,
-    SettingsNotifier settingsNotifier,
+    ReadingSettingsState readingSettings,
+    ReadingSettingsNotifier readingSettingsNotifier,
   ) {
-    final isSelected = settingsState.fontFamily.displayName == fontKey;
+    final isSelected = readingSettings.fontFamily.displayName == fontKey;
     
     return Container(
       decoration: BoxDecoration(
@@ -600,7 +600,7 @@ class _ReadingSettingsPanelState extends ConsumerState<ReadingSettingsPanel> wit
     );
   }
 
-  Widget _buildFontPreview(ThemeData theme, SettingsState settingsState) {
+  Widget _buildFontPreview(ThemeData theme, ReadingSettingsState readingSettings) {
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
@@ -634,8 +634,8 @@ class _ReadingSettingsPanelState extends ConsumerState<ReadingSettingsPanel> wit
           Text(
             'اسلام علیکم ورحمۃ اللہ وبرکاتہ',
             style: TextStyle(
-              fontSize: settingsState.fontSize.size + 2,
-              height: settingsState.lineSpacing,
+              fontSize: readingSettings.fontSize.size + 2,
+              height: readingSettings.lineSpacing,
               fontFamily: 'NotoNastaliqUrdu', // Use current font selection
               color: theme.colorScheme.onSurface,
             ),
@@ -645,8 +645,8 @@ class _ReadingSettingsPanelState extends ConsumerState<ReadingSettingsPanel> wit
           Text(
             'This is how your text will appear with current settings.',
             style: TextStyle(
-              fontSize: settingsState.fontSize.size,
-              height: settingsState.lineSpacing,
+              fontSize: readingSettings.fontSize.size,
+              height: readingSettings.lineSpacing,
               color: theme.colorScheme.onSurface.withValues(alpha: 0.7),
           ),
         ),

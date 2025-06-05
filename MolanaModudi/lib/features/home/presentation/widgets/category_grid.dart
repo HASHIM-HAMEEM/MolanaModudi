@@ -130,9 +130,9 @@ class CategoryGrid extends StatelessWidget {
           itemCount: displayCategories.length > 4 ? 4 : displayCategories.length,
           gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
             crossAxisCount: 2, // Two columns
-            crossAxisSpacing: 16.0, // Spacing between columns
-            mainAxisSpacing: 12.0, // Spacing between rows
-            childAspectRatio: 2.4, // Adjusted for better proportion
+            crossAxisSpacing: 12.0, // Reduced spacing between columns
+            mainAxisSpacing: 10.0, // Reduced spacing between rows
+            childAspectRatio: 2.6, // Slightly adjusted for better proportion
           ),
           itemBuilder: (context, index) {
             final category = displayCategories[index];
@@ -152,16 +152,16 @@ class CategoryGrid extends StatelessWidget {
                     : Colors.white;
                     
             final borderColor = isDark
-                ? const Color(0xFF059669).withOpacity(0.15)
+                ? const Color(0xFF059669).withValues(alpha: 0.15)
                 : isSepia
-                    ? const Color(0xFF059669).withOpacity(0.12)
-                    : const Color(0xFF059669).withOpacity(0.08);
+                    ? const Color(0xFF059669).withValues(alpha: 0.12)
+                    : const Color(0xFF059669).withValues(alpha: 0.08);
                     
             final iconBgColor = isDark
-                ? const Color(0xFF059669).withOpacity(0.15)
+                ? const Color(0xFF059669).withValues(alpha: 0.15)
                 : isSepia
-                    ? const Color(0xFF059669).withOpacity(0.12)
-                    : const Color(0xFF059669).withOpacity(0.08);
+                    ? const Color(0xFF059669).withValues(alpha: 0.12)
+                    : const Color(0xFF059669).withValues(alpha: 0.08);
                     
             final iconColor = isDark
                 ? const Color(0xFF10B981) // Lighter green for dark mode
@@ -204,7 +204,7 @@ class CategoryGrid extends StatelessWidget {
                   ),
                   boxShadow: isDark ? [] : [
                     BoxShadow(
-                      color: Colors.black.withOpacity(0.04),
+                      color: Colors.black.withValues(alpha: 0.04),
                       blurRadius: 12,
                       offset: const Offset(0, 2),
                     ),

@@ -1,7 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../entities/biography_event_entity.dart';
 import '../repositories/biography_repository.dart';
-import '../../data/repositories/biography_repository_impl.dart'; // To access biographyRepositoryProvider
+import '../../data/repositories/enhanced_biography_repository.dart'; // To access enhancedBiographyRepositoryProvider
 
 class GetBiographyEventsUseCase {
   final BiographyRepository _repository;
@@ -17,6 +17,6 @@ class GetBiographyEventsUseCase {
 
 // Provider for the GetBiographyEventsUseCase
 final getBiographyEventsUseCaseProvider = Provider<GetBiographyEventsUseCase>((ref) {
-  final repository = ref.watch(biographyRepositoryProvider);
+  final repository = ref.watch(enhancedBiographyRepositoryProvider);
   return GetBiographyEventsUseCase(repository);
 });
